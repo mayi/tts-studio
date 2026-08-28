@@ -1,0 +1,47 @@
+{
+  "1": {
+    "inputs": {
+      "model_version": "Fun-CosyVoice3-0.5B",
+      "download_source": "ModelScope",
+      "device": "auto",
+      "force_redownload": false,
+      "force_reload": false
+    },
+    "class_type": "FL_CosyVoice3_ModelLoader",
+    "_meta": {
+      "title": "FL CosyVoice3 Model Loader"
+    }
+  },
+  "7": {
+    "inputs": {
+      "filename_prefix": "audio/第一小节",
+      "format": "mp3",
+      "format.quality": "V0",
+      "audio": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "SaveAudioAdvanced",
+    "_meta": {
+      "title": "保存音频（高级）"
+    }
+  },
+  "9": {
+    "inputs": {
+      "text": " 本小节到这里就结束了，感谢您的聆听。",
+      "speaker_preset": "xiaoying-best",
+      "speed": 0.95,
+      "seed": 1623340739,
+      "text_frontend": false,
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "FL_CosyVoice3_SpeakerClone",
+    "_meta": {
+      "title": "FL CosyVoice3 Speaker Clone"
+    }
+  }
+}
