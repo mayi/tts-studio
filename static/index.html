@@ -1,0 +1,1631 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS Studio - 现代化文章转语音智能工作台</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            },
+            accent: {
+              500: '#ec4899',
+              600: '#db2777',
+            }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+  <style>
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.4);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.8);
+    }
+    
+    /* 玻璃拟态卡片背景 */
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    
+    .glass-card-light {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    [v-cloak] { display: none; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased select-none selection:bg-indigo-500 selection:text-white transition-colors duration-200">
+  <div id="app" v-cloak class="flex flex-col h-screen overflow-hidden">
+    
+    <!-- 顶部导航栏 -->
+    <header class="h-16 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between shrink-0 z-30 shadow-sm">
+      <!-- 品牌与状态 -->
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+            <i data-lucide="mic" class="w-5 h-5 text-white"></i>
+          </div>
+          <div>
+            <h1 class="font-bold text-lg leading-tight tracking-wide bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+              TTS Studio
+            </h1>
+            <p class="text-xs text-slate-400 font-medium">CosyVoice3 · 播客级自动化工作台</p>
+          </div>
+        </div>
+
+        <div class="h-5 w-px bg-slate-700 mx-2 hidden sm:block"></div>
+
+        <!-- 系统状态标签 -->
+        <div class="hidden lg:flex items-center gap-2">
+          <!-- ComfyUI 状态 -->
+          <div :title="status.comfyui?.message" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border"
+               :class="status.comfyui?.status ? 'bg-emerald-950/50 text-emerald-400 border-emerald-800/50' : 'bg-rose-950/50 text-rose-400 border-rose-800/50'">
+            <span class="w-2 h-2 rounded-full" :class="status.comfyui?.status ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'"></span>
+            ComfyUI
+          </div>
+
+          <!-- LLM 状态 -->
+          <div :title="status.llm?.message" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border"
+               :class="status.llm?.status ? 'bg-indigo-950/50 text-indigo-400 border-indigo-800/50' : 'bg-amber-950/50 text-amber-400 border-amber-800/50'">
+            <span class="w-2 h-2 rounded-full" :class="status.llm?.status ? 'bg-indigo-400' : 'bg-amber-400'"></span>
+            LLM: {{ config.LLM_MODEL || 'gpt-4o-mini' }}
+          </div>
+
+          <!-- FFmpeg 状态 -->
+          <div :title="status.ffmpeg?.message" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border"
+               :class="status.ffmpeg?.status ? 'bg-purple-950/50 text-purple-400 border-purple-800/50' : 'bg-rose-950/50 text-rose-400 border-rose-800/50'">
+            <span class="w-2 h-2 rounded-full" :class="status.ffmpeg?.status ? 'bg-purple-400' : 'bg-rose-400'"></span>
+            FFmpeg
+          </div>
+        </div>
+      </div>
+
+      <!-- 顶部中央：当前任务进度条 (运行中显示) -->
+      <div v-if="task.isRunning" class="flex-1 max-w-md mx-6 flex flex-col justify-center">
+        <div class="flex justify-between items-center text-xs mb-1.5 font-medium">
+          <span class="text-indigo-300 flex items-center gap-1.5">
+            <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+            {{ getTaskDesc() }}
+          </span>
+          <span class="text-slate-400">{{ task.percent }}% ({{ task.current }}/{{ task.total }})</span>
+        </div>
+        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/50">
+          <div class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+               :style="{ width: task.percent + '%' }"></div>
+        </div>
+      </div>
+
+      <!-- 右侧控制区 -->
+      <div class="flex items-center gap-3">
+        <!-- 一键全流程运行按钮 -->
+        <button v-if="!task.isRunning"
+                @click="runPipeline('all')"
+                :disabled="!currentDoc"
+                class="px-4 py-2 rounded-xl font-medium text-sm text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-md shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          <i data-lucide="play" class="w-4 h-4 fill-white"></i>
+          <span>一键全流程生成</span>
+        </button>
+
+        <!-- 任务运行中的中止按钮 -->
+        <button v-else
+                @click="cancelPipeline"
+                class="px-4 py-2 rounded-xl font-medium text-sm text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/20 active:scale-95 transition-all flex items-center gap-2 animate-pulse">
+          <i data-lucide="square" class="w-4 h-4 fill-white"></i>
+          <span>中止任务</span>
+        </button>
+
+        <!-- 控制台抽屉开关 -->
+        <button @click="showConsole = !showConsole"
+                class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors relative"
+                title="实时控制台日志">
+          <i data-lucide="terminal" class="w-4 h-4"></i>
+          <span v-if="hasNewLogs" class="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full animate-ping"></span>
+        </button>
+
+        <!-- 设置面板开关 -->
+        <button @click="showSettings = true"
+                class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                title="系统设置与环境诊断">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- 主工作区：左右双栏 -->
+    <div class="flex-1 flex overflow-hidden">
+      
+      <!-- 左侧：章节文章列表侧边栏 -->
+      <aside class="w-72 border-r border-slate-800/80 bg-slate-900/60 flex flex-col shrink-0">
+        <!-- 侧边栏头部操作 -->
+        <div class="p-4 border-b border-slate-800/80 flex items-center justify-between">
+          <div class="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <i data-lucide="folder-open" class="w-4 h-4 text-indigo-400"></i>
+            <span>文章章节 ({{ documents.length }})</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button @click="openCreateModal" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition" title="新建/导入文章">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+            </button>
+            <button @click="loadDocuments" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition" title="刷新列表">
+              <i data-lucide="refresh-cw" class="w-4 h-4" :class="{'animate-spin': loadingDocs}"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 快速搜索 -->
+        <div class="px-4 py-2 border-b border-slate-800/50">
+          <div class="relative">
+            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+            <input v-model="docSearch" placeholder="搜索章节文章..."
+                   class="w-full pl-8 pr-3 py-1.5 bg-slate-950/60 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50">
+          </div>
+        </div>
+
+        <!-- 章节列表容器 -->
+        <div class="flex-1 overflow-y-auto p-3 space-y-2">
+          <div v-for="doc in filteredDocuments" :key="doc.name"
+               @click="selectDocument(doc)"
+               class="group p-3 rounded-xl border transition-all cursor-pointer relative"
+               :class="currentDoc?.name === doc.name 
+                 ? 'bg-indigo-950/40 border-indigo-500/50 shadow-md shadow-indigo-950/50' 
+                 : 'bg-slate-900/40 border-slate-800/60 hover:bg-slate-800/60 hover:border-slate-700'">
+            
+            <div class="flex items-start justify-between">
+              <div class="font-medium text-sm text-slate-200 group-hover:text-white truncate pr-2" :title="doc.name">
+                {{ doc.name }}
+              </div>
+              
+              <!-- 音频完成状态徽章 -->
+              <span v-if="doc.has_output" class="shrink-0 w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400" title="音频已合成"></span>
+              <span v-else-if="doc.audio_seg_count > 0" class="shrink-0 w-2 h-2 rounded-full bg-amber-400" :title="'已生成 ' + doc.audio_seg_count + ' 段'"></span>
+              <span v-else class="shrink-0 w-2 h-2 rounded-full bg-slate-600" title="尚未生成语音"></span>
+            </div>
+
+            <div class="mt-2 flex items-center justify-between text-xs text-slate-400">
+              <div class="flex items-center gap-2">
+                <span>{{ doc.char_count }} 字</span>
+                <span class="text-slate-600">·</span>
+                <span>{{ doc.seg_count > 0 ? doc.seg_count + ' 段' : '未分段' }}</span>
+              </div>
+
+              <!-- 删除按钮 -->
+              <button @click.stop="deleteDoc(doc)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 rounded transition" title="删除文章">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="filteredDocuments.length === 0" class="text-center py-12 text-slate-500 text-xs">
+            暂无匹配文章，点击上方 + 创建
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右侧：工作台主体 -->
+      <main class="flex-1 flex flex-col overflow-hidden bg-slate-950/40 relative">
+        
+        <div v-if="!currentDoc" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-8">
+          <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-4 shadow-xl">
+            <i data-lucide="file-text" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-slate-300 font-semibold text-lg">请在左侧选择或新建一篇文章</h3>
+          <p class="text-sm text-slate-500 mt-1 max-w-sm text-center">从左侧章节列表中点击文章，即可开启智能分段、单段微调试听与音频母带导出。</p>
+          <button @click="openCreateModal" class="mt-4 px-4 py-2 rounded-xl text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-2">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            新建文章
+          </button>
+        </div>
+
+        <div v-else class="flex-1 flex flex-col overflow-hidden">
+          
+          <!-- 工作台 Tab 切换栏 -->
+          <div class="h-14 border-b border-slate-800/80 bg-slate-900/40 px-6 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+              <button @click="activeTab = 'split'"
+                      class="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all"
+                      :class="activeTab === 'split' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'">
+                <i data-lucide="scissors" class="w-3.5 h-3.5"></i>
+                <span>步骤 1: 智能分段</span>
+              </button>
+              
+              <button @click="activeTab = 'tts'"
+                      class="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all"
+                      :class="activeTab === 'tts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'">
+                <i data-lucide="mic-2" class="w-3.5 h-3.5"></i>
+                <span>步骤 2: 分段微调 & 语音合成</span>
+                <span v-if="segments.length > 0" class="px-1.5 py-0.5 text-[10px] rounded-full bg-indigo-900 text-indigo-200">{{ segments.length }}</span>
+              </button>
+
+              <button @click="activeTab = 'merge'"
+                      class="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all"
+                      :class="activeTab === 'merge' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'">
+                <i data-lucide="music" class="w-3.5 h-3.5"></i>
+                <span>步骤 3: 母带合并 & 导出</span>
+                <span v-if="currentDoc.has_output" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              </button>
+            </div>
+
+            <!-- 当前选中文章信息 -->
+            <div class="flex items-center gap-3 text-xs text-slate-400">
+              <span class="font-medium text-slate-300">{{ currentDoc.name }}</span>
+              <span class="text-slate-600">|</span>
+              <span>共 {{ currentDocRawContent.length }} 字符</span>
+              <span>(约 {{ Math.ceil(currentDocRawContent.length / 280) }} 分钟)</span>
+            </div>
+          </div>
+
+          <!-- TAB 1 内容：原文与智能分段 -->
+          <div v-show="activeTab === 'split'" class="flex-1 overflow-y-auto p-6 space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              <!-- 左 2 栏：原文编辑器 -->
+              <div class="lg:col-span-2 glass-card rounded-2xl p-5 flex flex-col h-[calc(100vh-12rem)]">
+                <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+                  <div class="flex items-center gap-2 font-medium text-sm text-slate-200">
+                    <i data-lucide="file-edit" class="w-4 h-4 text-indigo-400"></i>
+                    <span>原文内容编辑</span>
+                  </div>
+                  <button @click="saveRawDoc" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs font-medium transition flex items-center gap-1.5">
+                    <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                    保存原文
+                  </button>
+                </div>
+
+                <textarea v-model="currentDocRawContent"
+                          placeholder="在此处输入或粘贴文章正文..."
+                          class="flex-1 w-full bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 text-slate-200 placeholder-slate-600 font-mono text-sm leading-relaxed focus:outline-none focus:border-indigo-500/50 resize-none"></textarea>
+              </div>
+
+              <!-- 右 1 栏：分段控制与提示词 -->
+              <div class="space-y-5">
+                <div class="glass-card rounded-2xl p-5 space-y-4">
+                  <h3 class="font-semibold text-sm text-slate-200 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-4 h-4 text-purple-400"></i>
+                    智能分段配置
+                  </h3>
+
+                  <!-- 单段最大字数 -->
+                  <div>
+                    <div class="flex justify-between text-xs text-slate-400 mb-1">
+                      <span>单段最大字数</span>
+                      <span class="font-mono text-indigo-400 font-bold">{{ config.MAX_SEGMENT_CHARS }} 字</span>
+                    </div>
+                    <input type="range" min="100" max="300" step="10" v-model.number="config.MAX_SEGMENT_CHARS"
+                           class="w-full accent-indigo-500">
+                    <p class="text-[11px] text-slate-500 mt-1">播客朗读推荐设为 180~200 字以保持极佳语义连贯。</p>
+                  </div>
+
+                  <!-- 触发按钮 -->
+                  <button @click="runPipeline('split')"
+                          :disabled="task.isRunning || !currentDocRawContent.trim()"
+                          class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-medium text-sm shadow-lg shadow-indigo-600/20 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                    <span>调用 LLM 开始智能分段</span>
+                  </button>
+                </div>
+
+                <!-- 分段状态提醒 -->
+                <div class="glass-card rounded-2xl p-5">
+                  <div class="flex items-center gap-2 text-xs font-semibold text-slate-300 mb-2">
+                    <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+                    分段规则说明
+                  </div>
+                  <ul class="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                    <li>全自动保留原文每一个字，严格不漏字</li>
+                    <li>自动识别标题并单独成段</li>
+                    <li>在语义自然顿挫处断句，适合语音模型长音频合成</li>
+                    <li>分段完成后可直接在步骤 2 中手动微调与拆分</li>
+                  </ul>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- TAB 2 内容：分段微调与语音合成 (核心工作区) -->
+          <div v-show="activeTab === 'tts'" class="flex-1 flex flex-col overflow-hidden">
+            
+            <!-- 分段操作工具栏 -->
+            <div class="p-4 border-b border-slate-800/80 bg-slate-900/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div class="flex items-center gap-3">
+                <!-- 全选勾选框 -->
+                <label class="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                  <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="rounded accent-indigo-600 w-4 h-4">
+                  <span>全选 ({{ selectedSegments.length }}/{{ segments.length }})</span>
+                </label>
+
+                <div class="h-4 w-px bg-slate-700"></div>
+
+                <!-- 批量重新生成选中段落 -->
+                <button @click="regenerateSelected"
+                        :disabled="task.isRunning || selectedSegments.length === 0"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-600/30 text-purple-300 border border-purple-500/40 hover:bg-purple-600/50 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                  <span>批量重新生成选中 ({{ selectedSegments.length }}段)</span>
+                </button>
+
+                <!-- 全量生成语音 -->
+                <button @click="runPipeline('tts')"
+                        :disabled="task.isRunning || segments.length === 0"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 disabled:opacity-40">
+                  <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                  <span>全量生成语音</span>
+                </button>
+              </div>
+
+              <!-- 发音参数快速调节 -->
+              <div class="flex items-center gap-4 text-xs">
+                <!-- 发音人预设 -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-slate-400">发音人:</span>
+                  <select v-model="config.SPEAKER_PRESET" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none">
+                    <option value="xiaoying-best">xiaoying-best (小英)</option>
+                    <option value="default">default (默认)</option>
+                  </select>
+                </div>
+
+                <!-- 语速 -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-slate-400">语速:</span>
+                  <span class="font-mono text-indigo-400 font-semibold">{{ config.SPEED }}x</span>
+                  <input type="range" min="0.7" max="1.3" step="0.05" v-model.number="config.SPEED" class="w-16 accent-indigo-500">
+                </div>
+
+                <!-- 新增分段按钮 -->
+                <button @click="insertSegmentAt(segments.length)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs transition flex items-center gap-1">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                  <span>新增分段</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 分段卡片流式列表 -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-4">
+              <div v-if="segments.length === 0" class="text-center py-20 text-slate-500">
+                <i data-lucide="scissors" class="w-10 h-10 mx-auto mb-2 text-slate-600"></i>
+                <p>当前文章尚未分段，请前往【步骤 1】执行智能分段</p>
+              </div>
+
+              <!-- 单个分段卡片 -->
+              <div v-for="(seg, idx) in segments" :key="seg.idx"
+                   class="glass-card rounded-2xl p-4 transition-all duration-200 border"
+                   :class="selectedSegments.includes(seg.idx) ? 'border-indigo-500/70 bg-indigo-950/20' : 'border-slate-800/80 hover:border-slate-700'">
+                
+                <div class="flex items-start justify-between gap-4 mb-3">
+                  <div class="flex items-center gap-3">
+                    <input type="checkbox" :value="seg.idx" v-model="selectedSegments" class="rounded accent-indigo-600 w-4 h-4">
+                    
+                    <span class="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-slate-800 border border-slate-700 text-indigo-300">
+                      #{{ String(seg.idx).padStart(3, '0') }}
+                    </span>
+
+                    <span class="text-xs px-2 py-0.5 rounded font-mono"
+                          :class="seg.chars > config.MAX_SEGMENT_CHARS ? 'bg-rose-950/80 text-rose-400 border border-rose-800' : 'text-slate-400 bg-slate-900'">
+                      {{ seg.chars }} 字
+                      <span v-if="seg.chars > config.MAX_SEGMENT_CHARS">(超标)</span>
+                    </span>
+
+                    <span v-if="seg.has_audio" class="flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">
+                      <i data-lucide="check-circle" class="w-3 h-3"></i>
+                      已生成
+                    </span>
+                    <span v-else class="text-[11px] text-slate-500 bg-slate-900 px-2 py-0.5 rounded">
+                      未合成
+                    </span>
+                  </div>
+
+                  <!-- 单段操作工具 -->
+                  <div class="flex items-center gap-2">
+                    <!-- 单段重新生成语音 (秒级调优) -->
+                    <button @click="regenerateSingle(seg.idx)"
+                            :disabled="task.isRunning"
+                            class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow transition flex items-center gap-1 disabled:opacity-40"
+                            title="单独生成/重新生成此段语音">
+                      <i data-lucide="mic" class="w-3 h-3"></i>
+                      <span>{{ seg.has_audio ? '重新生成此段' : '生成此段语音' }}</span>
+                    </button>
+
+                    <!-- 下拉菜单 / 快捷操作 -->
+                    <button @click="mergeWithNext(seg.idx)" v-if="idx < segments.length - 1" class="p-1 text-slate-400 hover:text-indigo-400 rounded transition" title="与下一段合并">
+                      <i data-lucide="merge" class="w-3.5 h-3.5"></i>
+                    </button>
+
+                    <button @click="insertSegmentAt(seg.idx)" class="p-1 text-slate-400 hover:text-emerald-400 rounded transition" title="在下方插入新段">
+                      <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                    </button>
+
+                    <button @click="deleteSingleSegment(seg.idx)" class="p-1 text-slate-400 hover:text-rose-400 rounded transition" title="删除此段">
+                      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 分段文本输入区 -->
+                <textarea v-model="seg.text"
+                          @blur="saveSingleSegment(seg)"
+                          @input="seg.chars = seg.text.length"
+                          rows="2"
+                          class="w-full bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-slate-200 placeholder-slate-600 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/50 resize-y transition"></textarea>
+
+                <!-- 分段音频试听条 -->
+                <div v-if="seg.has_audio" class="mt-3 flex items-center gap-3 bg-slate-950/50 p-2 rounded-xl border border-slate-800/80">
+                  <audio :src="seg.audio_url + '?t=' + seg.audio_mtime" controls class="h-8 flex-1 outline-none"></audio>
+                  <a :href="seg.audio_url" :download="currentDoc.name + '_' + seg.idx + '.mp3'" class="p-1.5 text-slate-400 hover:text-indigo-400 rounded" title="下载该分段音频">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3 内容：母带合并与导出 (Audio Master) -->
+          <div v-show="activeTab === 'merge'" class="flex-1 overflow-y-auto p-6 space-y-6">
+            <div class="max-w-4xl mx-auto space-y-6">
+              
+              <!-- 最终合成母带试听与下载卡片 (Master Player & Download) -->
+              <div class="glass-card rounded-2xl p-6 space-y-5">
+                <!-- 头部：标题与下载操作 -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-800/50 flex items-center justify-center text-indigo-400">
+                      <i data-lucide="disc" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                        <span>完整合成音频母带</span>
+                        <span v-if="currentDoc.has_output" class="px-2.5 py-0.5 bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 text-[11px] font-semibold rounded-full font-mono">
+                          ● 320Kbps 立体声
+                        </span>
+                      </h2>
+                      <p class="text-xs text-slate-400 mt-0.5">包含全部分段并根据设置插入自然呼吸停顿与背景音乐。</p>
+                    </div>
+                  </div>
+
+                  <!-- 顶部右侧：直接下载按钮 / 状态 -->
+                  <div class="flex items-center gap-3">
+                    <a v-if="currentDoc.has_output"
+                       :href="'/api/audio/download/' + currentDoc.name"
+                       class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 text-center"
+                       title="点击下载 320Kbps 高保真 MP3 文件">
+                      <i data-lucide="download" class="w-4 h-4"></i>
+                      <span>下载完整母带 ({{ (currentDoc.output_size / 1024 / 1024).toFixed(2) }} MB)</span>
+                    </a>
+                    <span v-else class="px-3 py-1.5 bg-slate-800/80 text-slate-400 text-xs font-medium rounded-xl border border-slate-700/50">
+                      尚未生成母带
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 现代紧凑流式播放器控制台 (Sleek Audio Console) -->
+                <div class="bg-slate-950/90 rounded-xl p-4 border border-slate-800 space-y-3">
+                  <!-- 原生 HTML5 音频元素 -->
+                  <audio id="masterAudio"
+                         ref="masterAudioRef"
+                         :src="currentDoc?.has_output ? encodeURI('/api/audio/output/' + currentDoc.name) + '?t=' + masterAudioTimestamp : ''"
+                         @timeupdate="onMasterAudioTimeUpdate"
+                         @loadedmetadata="onMasterAudioLoadedMetadata"
+                         @play="isPlayingMaster = true"
+                         @pause="isPlayingMaster = false"
+                         @ended="isPlayingMaster = false"
+                         preload="auto"
+                         class="hidden"></audio>
+
+                  <!-- 进度拖动条与时间显示 -->
+                  <div class="space-y-1.5">
+                    <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+                      <span class="text-indigo-400 font-semibold">{{ formatTime(masterCurrentTime) }}</span>
+                      <span class="text-slate-500"> / </span>
+                      <span>{{ formatTime(masterDuration) }}</span>
+                    </div>
+                    <div class="relative flex items-center">
+                      <input type="range"
+                             min="0"
+                             :max="masterDuration || 100"
+                             step="0.1"
+                             :value="masterCurrentTime"
+                             @input="onMasterSeekInput"
+                             :disabled="!currentDoc?.has_output"
+                             class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 disabled:opacity-40">
+                    </div>
+                  </div>
+                  
+                  <!-- 播放器核心控制栏 -->
+                  <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                    <div class="flex items-center gap-3">
+                      <!-- 播放/暂停 (主按钮) -->
+                      <button @click="togglePlayMaster"
+                              :disabled="!currentDoc?.has_output"
+                              class="w-11 h-11 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 transition disabled:opacity-40"
+                              :title="isPlayingMaster ? '暂停' : '播放'">
+                        <svg v-if="!isPlayingMaster" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white translate-x-0.5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                        </svg>
+                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                          <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+                        </svg>
+                      </button>
+
+                      <!-- 快退 5s / 快进 5s -->
+                      <button @click="seekMaster(-5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快退 5 秒">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                      </button>
+                      <button @click="seekMaster(5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快进 5 秒">
+                        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+                      </button>
+
+                      <!-- 状态指示 -->
+                      <span class="text-xs text-slate-400 flex items-center gap-1.5 ml-2">
+                        <span class="w-2 h-2 rounded-full" :class="isPlayingMaster ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'"></span>
+                        <span>{{ isPlayingMaster ? '正在播放母带' : (currentDoc?.has_output ? '就绪' : '等待生成') }}</span>
+                      </span>
+                    </div>
+
+                    <!-- 播放倍速选择 -->
+                    <div class="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>倍速:</span>
+                      <button v-for="speed in [0.75, 1.0, 1.25, 1.5, 2.0]" :key="speed"
+                              @click="setMasterPlaybackRate(speed)"
+                              class="px-2.5 py-1 rounded-lg font-mono transition"
+                              :class="masterRate === speed ? 'bg-indigo-600 text-white font-semibold shadow' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'">
+                        {{ speed }}x
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 母带合成设置与一键生成控制台 (Card 2: Unified Mastering Studio) -->
+              <div class="glass-card rounded-2xl p-6 space-y-6">
+                <!-- 头部说明 -->
+                <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-purple-950/80 border border-purple-800/50 flex items-center justify-center text-purple-400">
+                      <i data-lucide="sliders" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                        母带参数配置与合成
+                      </h3>
+                      <p class="text-xs text-slate-400 mt-0.5">调整停顿与背景音乐后，点击底部按钮即可自动合并全部分段并输出 320Kbps 立体声母带。</p>
+                    </div>
+                  </div>
+
+                  <!-- 上传背景音乐 -->
+                  <label class="px-3.5 py-1.5 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-medium cursor-pointer transition flex items-center gap-1.5 shadow">
+                    <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                    <span>上传新背景音乐</span>
+                    <input type="file" accept="audio/*" @change="uploadBgm" class="hidden">
+                  </label>
+                </div>
+
+                <!-- 第 1 步：停顿与音质规格 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- 段间停顿调节 -->
+                  <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+                    <div class="flex justify-between text-xs text-slate-200 font-medium">
+                      <span class="flex items-center gap-1.5">
+                        <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>段间停顿静音时长</span>
+                      </span>
+                      <span class="font-mono text-indigo-400 font-bold">{{ config.PAUSE_DURATION }} 秒</span>
+                    </div>
+                    <input type="range" min="0.2" max="3.0" step="0.1" v-model.number="config.PAUSE_DURATION" class="w-full accent-indigo-500">
+                    <p class="text-[11px] text-slate-400">在每个分段语音之间插入呼吸静音垫音，使整篇文章朗读听感自然舒适。</p>
+                  </div>
+
+                  <!-- 音质输出规格 -->
+                  <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-medium text-slate-200 flex items-center gap-1.5">
+                        <i data-lucide="headphones" class="w-3.5 h-3.5 text-purple-400"></i>
+                        <span>输出声道与高保真规格</span>
+                      </span>
+                      <span class="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                        44.1kHz · 立体声
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80">
+                      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        <input type="checkbox" v-model="config.STEREO" class="rounded accent-indigo-600 w-4 h-4">
+                        <span>合成为双声道立体声 (Stereo)</span>
+                      </label>
+                      <span class="font-mono text-[11px] text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/50">
+                        320Kbps MP3
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 第 2 步：背景音乐 (BGM) 选择 -->
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="font-semibold text-slate-200 flex items-center gap-1.5">
+                      <i data-lucide="music-2" class="w-4 h-4 text-purple-400"></i>
+                      <span>背景音乐选择 (可选)</span>
+                      <span class="text-slate-500 font-normal font-mono text-[11px]">({{ bgmFiles.length }} 首可选)</span>
+                    </span>
+                    <span class="text-slate-400 text-[11px]">
+                      人声音量保持 100% 原始清晰，BGM 循环匹配并在结尾平滑淡出
+                    </span>
+                  </div>
+
+                  <!-- 播放列表主区域 (Playlist) -->
+                  <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <!-- 选项 0：纯人声 (不混入背景音乐) -->
+                    <div @click="selectedBgm = ''"
+                         class="group flex items-center justify-between p-3 rounded-xl border transition cursor-pointer"
+                         :class="!selectedBgm ? 'bg-purple-950/30 border-purple-500/60 shadow-sm' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-900/60 hover:border-slate-700'">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition"
+                             :class="!selectedBgm ? 'border-purple-500 bg-purple-500' : 'border-slate-600 group-hover:border-slate-400'">
+                          <div v-if="!selectedBgm" class="w-1.5 h-1.5 bg-white rounded-full"></div>
+                        </div>
+                        <div class="w-7 h-7 rounded-lg bg-slate-800/60 border border-slate-700/50 flex items-center justify-center text-slate-400 shrink-0">
+                          <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-xs font-semibold text-slate-200">纯人声 (不混入背景音乐)</div>
+                          <div class="text-[11px] text-slate-400">仅保留主讲朗读语音</div>
+                        </div>
+                      </div>
+                      <div class="text-[11px] font-mono px-2 py-0.5 rounded text-slate-400 bg-slate-900 border border-slate-800 shrink-0">
+                        默认
+                      </div>
+                    </div>
+
+                    <!-- 各个 BGM 歌曲卡片 -->
+                    <div v-for="(bgm, idx) in bgmFiles" :key="bgm.filename"
+                         @click="selectedBgm = bgm.filename"
+                         class="group flex items-center justify-between p-3 rounded-xl border transition cursor-pointer"
+                         :class="selectedBgm === bgm.filename ? 'bg-purple-950/30 border-purple-500/60 shadow-sm' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-900/60 hover:border-slate-700'">
+                      <!-- 左侧：选择状态 + 歌曲序号/图标 + 歌曲名称与信息 (防溢出) -->
+                      <div class="flex items-center gap-3 min-w-0 mr-3">
+                        <div class="w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition"
+                             :class="selectedBgm === bgm.filename ? 'border-purple-500 bg-purple-500' : 'border-slate-600 group-hover:border-slate-400'">
+                          <div v-if="selectedBgm === bgm.filename" class="w-1.5 h-1.5 bg-white rounded-full"></div>
+                        </div>
+                        <div class="w-7 h-7 rounded-lg bg-purple-950/60 border border-purple-800/40 flex items-center justify-center text-purple-300 shrink-0 font-mono text-xs">
+                          {{ idx + 1 }}
+                        </div>
+                        <div class="min-w-0">
+                          <!-- 歌曲名防溢出截断 + title 提示 -->
+                          <div class="text-xs font-semibold text-slate-200 truncate group-hover:text-purple-300 transition"
+                               :title="bgm.filename">
+                            {{ bgm.filename }}
+                          </div>
+                          <div class="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                            <!-- 时长徽章 -->
+                            <span v-if="bgm.duration_formatted" class="font-mono text-purple-300 bg-purple-950/90 px-1.5 py-0.5 rounded border border-purple-800/50 flex items-center gap-1 text-[10px] font-medium">
+                              <i data-lucide="clock" class="w-3 h-3 text-purple-400"></i>
+                              <span>{{ bgm.duration_formatted }}</span>
+                            </span>
+                            <span class="font-mono">{{ (bgm.size / 1024 / 1024).toFixed(2) }} MB</span>
+                            <span>·</span>
+                            <span class="uppercase text-[10px] bg-slate-900 px-1 rounded text-purple-300 border border-slate-800">
+                              {{ bgm.filename.split('.').pop() }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 右侧：试听与删除操作 -->
+                      <div class="flex items-center gap-2 shrink-0" @click.stop>
+                        <!-- 试听按钮 (Play/Pause) -->
+                        <button @click="togglePreviewBgm(bgm)"
+                                class="px-2.5 py-1.5 rounded-lg border text-xs font-medium transition flex items-center gap-1.5"
+                                :class="playingBgmName === bgm.filename && isPlayingBgm ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30' : 'bg-slate-900/90 hover:bg-purple-950/60 text-slate-300 hover:text-purple-300 border-slate-800 hover:border-purple-700/60'"
+                                :title="playingBgmName === bgm.filename && isPlayingBgm ? '暂停试听' : '试听该背景音乐'">
+                          <!-- Play icon -->
+                          <svg v-if="!(playingBgmName === bgm.filename && isPlayingBgm)" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                          </svg>
+                          <!-- Pause icon -->
+                          <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                            <rect x="6" y="4" width="4" height="16"></rect>
+                            <rect x="14" y="4" width="4" height="16"></rect>
+                          </svg>
+                          <span class="text-[11px]">{{ playingBgmName === bgm.filename && isPlayingBgm ? '试听中' : '试听' }}</span>
+                        </button>
+
+                        <!-- 删除按钮 -->
+                        <button @click="deleteBgm(bgm.filename)"
+                                class="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition"
+                                title="删除该背景音乐">
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 空状态提示 -->
+                    <div v-if="bgmFiles.length === 0" class="text-center py-6 border border-dashed border-slate-800 rounded-xl bg-slate-950/20">
+                      <i data-lucide="music" class="w-8 h-8 text-slate-600 mx-auto mb-2"></i>
+                      <p class="text-xs text-slate-400">暂无背景音乐，点击上方“上传新背景音乐”或将音频放入 <code class="text-purple-300">bgm/</code> 文件夹</p>
+                    </div>
+                  </div>
+
+                  <!-- 选中 BGM 时的音量滑块调节 -->
+                  <div v-if="selectedBgm" class="p-3 bg-purple-950/20 border border-purple-900/40 rounded-xl space-y-2">
+                    <div class="flex items-center justify-between text-xs">
+                      <span class="text-purple-300 flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="volume-2" class="w-3.5 h-3.5 text-purple-400 shrink-0"></i>
+                        <span class="shrink-0">背景音乐音量比例:</span>
+                        <span class="font-medium truncate" :title="selectedBgm">
+                          《{{ selectedBgm }}》{{ getBgmDuration(selectedBgm) ? ' (' + getBgmDuration(selectedBgm) + ')' : '' }}
+                        </span>
+                      </span>
+                      <span class="font-mono text-purple-400 font-bold shrink-0 ml-2">{{ bgmVolume }}% (推荐 10%~20%)</span>
+                    </div>
+                    <input type="range" min="1" max="50" step="1" v-model.number="bgmVolume" class="w-full accent-purple-500">
+                  </div>
+                </div>
+
+                <!-- 底部统一操作栏 (Action Trigger) -->
+                <div class="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div class="text-xs text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+                    <span>全流程：自动合并全部分段音频 ➔ 插入停顿 ➔ 转为 320k 立体声 ➔ 混入背景音乐</span>
+                  </div>
+
+                  <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <!-- 快速微调：仅单独重混 BGM (已有母带且选了BGM时显示) -->
+                    <button v-if="currentDoc.has_output && selectedBgm"
+                            @click="runPipeline('bgm')"
+                            :disabled="task.isRunning"
+                            class="w-full sm:w-auto px-4 py-2.5 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 rounded-xl text-xs font-semibold shadow transition flex items-center justify-center gap-1.5 disabled:opacity-40"
+                            title="无需重新合并分段，直接在现有母带上替换并混入当前背景音乐">
+                      <i data-lucide="disc" class="w-4 h-4"></i>
+                      <span>仅单独混入背景音乐</span>
+                    </button>
+
+                    <!-- 主要按钮：一键生成完整母带 -->
+                    <button @click="runPipeline('merge')"
+                            :disabled="task.isRunning"
+                            class="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 disabled:opacity-40">
+                      <i data-lucide="sparkles" class="w-4 h-4"></i>
+                      <span>🚀 一键生成完整母带 (320k 立体声)</span>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+    </div>
+
+    <!-- 底部抽屉：实时控制台与终端日志 -->
+    <div v-show="showConsole"
+         class="h-64 border-t border-slate-800 bg-slate-950/95 backdrop-blur-xl flex flex-col shrink-0 z-40 shadow-2xl transition-all">
+      <!-- 控制台头部 -->
+      <div class="px-4 py-2 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2 text-xs font-mono text-slate-300">
+          <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i>
+          <span>实时任务控制台 (Live Logs)</span>
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="logs = []" class="p-1 text-slate-400 hover:text-slate-200 rounded text-xs" title="清空日志">
+            <i data-lucide="eraser" class="w-3.5 h-3.5"></i>
+          </button>
+          <button @click="showConsole = false" class="p-1 text-slate-400 hover:text-slate-200 rounded text-xs" title="关闭控制台">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 日志列表 -->
+      <div ref="logBox" class="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-1 bg-slate-950 selection:bg-indigo-900">
+        <div v-for="(log, idx) in logs" :key="idx" class="flex items-start gap-2 leading-relaxed">
+          <span class="text-slate-600 shrink-0">[{{ log.timestamp }}]</span>
+          <span class="shrink-0 font-bold" :class="{
+            'text-indigo-400': log.level === 'info',
+            'text-emerald-400': log.level === 'success',
+            'text-amber-400': log.level === 'warning',
+            'text-rose-400': log.level === 'error'
+          }">[{{ log.level.toUpperCase() }}]</span>
+          <span class="text-slate-300 break-all whitespace-pre-wrap">{{ log.message }}</span>
+        </div>
+        <div v-if="logs.length === 0" class="text-slate-600 italic">
+          暂无日志输出，执行任务时将在此处实时显示...
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗 1：新建 / 导入文章 Modal -->
+    <div v-if="showCreateModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="glass-card rounded-2xl max-w-xl w-full p-6 space-y-4 border border-slate-700 shadow-2xl">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <h3 class="font-bold text-base text-slate-100 flex items-center gap-2">
+            <i data-lucide="file-plus" class="w-5 h-5 text-indigo-400"></i>
+            新建 / 导入文章
+          </h3>
+          <button @click="showCreateModal = false" class="text-slate-400 hover:text-white">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">文章标题（文件名）</label>
+            <input v-model="newDocName" placeholder="例如: 第9小节" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">正文内容</label>
+              <label class="text-xs text-indigo-400 hover:underline cursor-pointer flex items-center gap-1">
+                <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                <span>从本地 .txt 导入</span>
+                <input type="file" accept=".txt" @change="handleFileUpload" class="hidden">
+              </label>
+            </div>
+            <textarea v-model="newDocContent" rows="8" placeholder="在此粘贴文章全文内容..." class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 resize-none font-mono"></textarea>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-2">
+          <button @click="showCreateModal = false" class="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-slate-200 bg-slate-800">取消</button>
+          <button @click="submitNewDoc" :disabled="!newDocName.trim() || !newDocContent.trim()" class="px-4 py-2 rounded-xl text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50">创建文章</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗 2：系统设置与连通性诊断 Modal -->
+    <div v-if="showSettings" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="glass-card rounded-2xl max-w-2xl w-full p-6 space-y-5 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <h3 class="font-bold text-base text-slate-100 flex items-center gap-2">
+            <i data-lucide="settings" class="w-5 h-5 text-indigo-400"></i>
+            系统配置与环境诊断
+          </h3>
+          <button @click="showSettings = false" class="text-slate-400 hover:text-white">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- 连通性测试区 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex flex-col justify-between">
+            <div class="text-xs text-slate-400 font-medium">ComfyUI 状态</div>
+            <div class="text-xs font-semibold my-1" :class="status.comfyui?.status ? 'text-emerald-400' : 'text-rose-400'">
+              {{ status.comfyui?.status ? '连接正常' : '连接失败' }}
+            </div>
+            <p class="text-[10px] text-slate-500 truncate" :title="status.comfyui?.message">{{ status.comfyui?.message }}</p>
+          </div>
+
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex flex-col justify-between">
+            <div class="text-xs text-slate-400 font-medium">LLM API 状态</div>
+            <div class="text-xs font-semibold my-1" :class="status.llm?.status ? 'text-indigo-400' : 'text-amber-400'">
+              {{ status.llm?.status ? '正常响应' : '未就绪' }}
+            </div>
+            <p class="text-[10px] text-slate-500 truncate" :title="status.llm?.message">{{ status.llm?.message }}</p>
+          </div>
+
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex flex-col justify-between">
+            <div class="text-xs text-slate-400 font-medium">FFmpeg 环境</div>
+            <div class="text-xs font-semibold my-1" :class="status.ffmpeg?.status ? 'text-purple-400' : 'text-rose-400'">
+              {{ status.ffmpeg?.status ? '已安装可用' : '未找到' }}
+            </div>
+            <p class="text-[10px] text-slate-500 truncate" :title="status.ffmpeg?.message">{{ status.ffmpeg?.message }}</p>
+          </div>
+        </div>
+
+        <!-- 详细表单配置 -->
+        <div class="space-y-4 pt-2">
+          <div class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">LLM 分段服务</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">LLM API Base</label>
+              <input v-model="config.LLM_API_BASE" placeholder="https://api.openai.com/v1" class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">LLM Model</label>
+              <input v-model="config.LLM_MODEL" placeholder="gpt-4o-mini" class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200">
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs text-slate-400 mb-1">LLM API Key</label>
+              <input type="password" v-model="config.LLM_API_KEY" placeholder="sk-..." class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200">
+            </div>
+          </div>
+
+          <div class="text-xs font-semibold text-purple-400 uppercase tracking-wider pt-2">ComfyUI TTS 服务</div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">ComfyUI 服务地址</label>
+            <input v-model="config.COMFYUI_URL" placeholder="http://127.0.0.1:8188" class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200">
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center pt-4 border-t border-slate-800">
+          <button @click="checkStatus" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>重新检测连通性</span>
+          </button>
+          <div class="flex gap-2">
+            <button @click="showSettings = false" class="px-4 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-slate-800">取消</button>
+            <button @click="saveSettings" class="px-4 py-1.5 rounded-lg text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500">保存配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Vue 3 核心交互逻辑 -->
+  <script>
+    const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+
+    createApp({
+      setup() {
+        const documents = ref([]);
+        const currentDoc = ref(null);
+        const currentDocRawContent = ref('');
+        const segments = ref([]);
+        const selectedSegments = ref([]);
+        const activeTab = ref('tts'); // split, tts, merge
+        const docSearch = ref('');
+        const loadingDocs = ref(false);
+
+        // 系统状态与配置
+        const status = ref({ comfyui: {}, llm: {}, ffmpeg: {} });
+        const config = ref({
+          LLM_API_BASE: '',
+          LLM_API_KEY: '',
+          LLM_MODEL: 'gpt-4o-mini',
+          COMFYUI_URL: 'http://127.0.0.1:8188',
+          MAX_SEGMENT_CHARS: 200,
+          PAUSE_DURATION: 1.0,
+          SPEAKER_PRESET: 'xiaoying-best',
+          SPEED: 0.95,
+          SEED: 1623340739,
+          STEREO: true,
+          BITRATE: '320k',
+        });
+
+        // 任务运行状态
+        const task = ref({
+          isRunning: false,
+          type: '',
+          percent: 0,
+          current: 0,
+          total: 0,
+          preview: '',
+        });
+
+        // 日志与控制台
+        const logs = ref([]);
+        const showConsole = ref(false);
+        const hasNewLogs = ref(false);
+        const logBox = ref(null);
+
+        // 弹窗状态
+        const showCreateModal = ref(false);
+        const showSettings = ref(false);
+        const newDocName = ref('');
+        const newDocContent = ref('');
+
+        // Master Audio 播放器
+        const masterAudioTimestamp = ref(Date.now());
+        const isPlayingMaster = ref(false);
+        const masterCurrentTime = ref(0);
+        const masterDuration = ref(0);
+        const masterRate = ref(1.0);
+
+        // 背景音乐 (BGM)
+        let bgmAudio = null;
+        const bgmFiles = ref([]);
+        const selectedBgm = ref('');
+        const bgmVolume = ref(15);
+        const playingBgmName = ref('');
+        const isPlayingBgm = ref(false);
+
+        // 过滤后的文章列表
+        const filteredDocuments = computed(() => {
+          if (!docSearch.value.trim()) return documents.value;
+          const q = docSearch.value.toLowerCase();
+          return documents.value.filter(d => d.name.toLowerCase().includes(q));
+        });
+
+        const isAllSelected = computed(() => {
+          return segments.value.length > 0 && selectedSegments.value.length === segments.value.length;
+        });
+
+        // ── 基础数据加载 ──────────────────────────────────────────
+        const loadDocuments = async () => {
+          loadingDocs.value = true;
+          try {
+            const res = await fetch('/api/documents');
+            const data = await res.json();
+            documents.value = data.documents || [];
+            if (currentDoc.value) {
+              const updated = documents.value.find(d => d.name === currentDoc.value.name);
+              if (updated) currentDoc.value = updated;
+            } else if (documents.value.length > 0) {
+              selectDocument(documents.value[0]);
+            }
+          } catch (e) {
+            console.error('加载文档列表失败', e);
+          } finally {
+            loadingDocs.value = false;
+            nextTick(refreshIcons);
+          }
+        };
+
+        const loadConfig = async () => {
+          try {
+            const res = await fetch('/api/config');
+            config.value = await res.json();
+          } catch (e) {
+            console.error('加载配置失败', e);
+          }
+        };
+
+        const checkStatus = async () => {
+          try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            status.value = data;
+            if (data.task?.is_running) {
+              task.value.isRunning = true;
+              task.value.type = data.task.current_task_type;
+            }
+          } catch (e) {
+            console.error('检测状态失败', e);
+          }
+        };
+
+        const selectDocument = async (doc) => {
+          currentDoc.value = doc;
+          selectedSegments.value = [];
+          
+          // 重置母带播放器状态
+          const audioEl = document.getElementById('masterAudio');
+          if (audioEl) {
+            audioEl.pause();
+            audioEl.currentTime = 0;
+          }
+          isPlayingMaster.value = false;
+          masterCurrentTime.value = 0;
+          masterDuration.value = 0;
+          masterAudioTimestamp.value = Date.now();
+
+          // 加载原文
+          try {
+            const res = await fetch(`/api/documents/${doc.name}`);
+            const data = await res.json();
+            currentDocRawContent.value = data.content;
+          } catch (e) {
+            currentDocRawContent.value = '';
+          }
+
+          // 加载分段列表
+          await loadSegments(doc.name);
+
+          nextTick(refreshIcons);
+        };
+
+        const loadSegments = async (name) => {
+          try {
+            const res = await fetch(`/api/documents/${name}/segments`);
+            const data = await res.json();
+            segments.value = data.segments || [];
+          } catch (e) {
+            segments.value = [];
+          }
+          nextTick(refreshIcons);
+        };
+
+        const loadBgmFiles = async () => {
+          try {
+            const res = await fetch('/api/bgm');
+            const data = await res.json();
+            bgmFiles.value = data.bgm_files || [];
+          } catch (e) {
+            console.error('加载背景音乐列表失败', e);
+          }
+        };
+
+        const uploadBgm = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+            const res = await fetch('/api/bgm/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            if (!res.ok) throw new Error('上传背景音乐失败');
+            const data = await res.json();
+            await loadBgmFiles();
+            selectedBgm.value = data.filename;
+            alert('背景音乐上传成功！');
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+
+        const deleteBgm = async (filename) => {
+          if (!confirm(`确定要删除背景音乐《${filename}》吗？`)) return;
+          try {
+            await fetch(`/api/bgm/${filename}`, { method: 'DELETE' });
+            if (selectedBgm.value === filename) selectedBgm.value = '';
+            if (playingBgmName.value === filename) {
+              if (bgmAudio) bgmAudio.pause();
+              isPlayingBgm.value = false;
+              playingBgmName.value = '';
+            }
+            await loadBgmFiles();
+          } catch (e) {
+            alert('删除失败');
+          }
+        };
+
+        const togglePreviewBgm = (bgm) => {
+          const filename = bgm ? bgm.filename : '';
+          if (!filename) return;
+
+          if (playingBgmName.value === filename && isPlayingBgm.value) {
+            if (bgmAudio) bgmAudio.pause();
+            isPlayingBgm.value = false;
+            return;
+          }
+
+          if (bgmAudio) {
+            bgmAudio.pause();
+            bgmAudio = null;
+          }
+
+          bgmAudio = new Audio(`/api/audio/bgm/${filename}`);
+          playingBgmName.value = filename;
+          isPlayingBgm.value = true;
+
+          bgmAudio.onplay = () => { isPlayingBgm.value = true; };
+          bgmAudio.onpause = () => { isPlayingBgm.value = false; };
+          bgmAudio.onended = () => { isPlayingBgm.value = false; playingBgmName.value = ''; };
+          bgmAudio.onerror = () => { isPlayingBgm.value = false; playingBgmName.value = ''; };
+
+          bgmAudio.play().catch(e => {
+            console.error('播放背景音乐失败', e);
+            isPlayingBgm.value = false;
+          });
+        };
+
+        const getBgmDuration = (filename) => {
+          const item = bgmFiles.value.find(b => b.filename === filename);
+          return item ? item.duration_formatted : '';
+        };
+
+        // ── 任务触发与流水线执行 ──────────────────────────────────
+        const runPipeline = async (step, targetSegments = null) => {
+          if (!currentDoc.value) return;
+
+          try {
+            const payload = {
+              document: currentDoc.value.name,
+              step: step,
+              segments: targetSegments,
+              speaker_preset: config.value.SPEAKER_PRESET,
+              speed: config.value.SPEED,
+              seed: config.value.SEED,
+              pause: config.value.PAUSE_DURATION,
+              stereo: config.value.STEREO !== false,
+              bitrate: config.value.BITRATE || '320k',
+              bgm_file: selectedBgm.value || null,
+              bgm_volume: (bgmVolume.value || 15) / 100,
+              max_chars: config.value.MAX_SEGMENT_CHARS,
+            };
+
+            const res = await fetch('/api/pipeline/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              alert(`启动任务失败: ${err.detail}`);
+              return;
+            }
+
+            task.value.isRunning = true;
+            task.value.type = step;
+            task.value.percent = 0;
+            showConsole.value = true;
+          } catch (e) {
+            alert(`请求出错: ${e.message}`);
+          }
+        };
+
+        const cancelPipeline = async () => {
+          try {
+            await fetch('/api/pipeline/cancel', { method: 'POST' });
+          } catch (e) {
+            console.error('取消请求失败', e);
+          }
+        };
+
+        const regenerateSingle = (idx) => {
+          runPipeline('retts', [idx]);
+        };
+
+        const regenerateSelected = () => {
+          if (selectedSegments.value.length === 0) return;
+          runPipeline('retts', selectedSegments.value);
+        };
+
+        // ── 分段编辑与操作 ────────────────────────────────────────
+        const saveSingleSegment = async (seg) => {
+          if (!currentDoc.value) return;
+          try {
+            await fetch(`/api/documents/${currentDoc.value.name}/segment/${seg.idx}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: seg.text }),
+            });
+          } catch (e) {
+            console.error('保存单段失败', e);
+          }
+        };
+
+        const toggleSelectAll = (e) => {
+          if (e.target.checked) {
+            selectedSegments.value = segments.value.map(s => s.idx);
+          } else {
+            selectedSegments.value = [];
+          }
+        };
+
+        const mergeWithNext = async (idx) => {
+          if (!currentDoc.value) return;
+          try {
+            await fetch(`/api/documents/${currentDoc.value.name}/segment/merge_next?idx=${idx}`, { method: 'POST' });
+            await loadSegments(currentDoc.value.name);
+          } catch (e) {
+            alert('合并失败');
+          }
+        };
+
+        const insertSegmentAt = async (idx) => {
+          if (!currentDoc.value) return;
+          const text = prompt('请输入新段落内容:', '');
+          if (text === null) return;
+          try {
+            await fetch(`/api/documents/${currentDoc.value.name}/segment/insert?idx=${idx}&text=${encodeURIComponent(text)}`, { method: 'POST' });
+            await loadSegments(currentDoc.value.name);
+          } catch (e) {
+            alert('插入分段失败');
+          }
+        };
+
+        const deleteSingleSegment = async (idx) => {
+          if (!confirm(`确定要删除第 ${idx} 段吗？`)) return;
+          try {
+            await fetch(`/api/documents/${currentDoc.value.name}/segment/delete?idx=${idx}`, { method: 'POST' });
+            await loadSegments(currentDoc.value.name);
+          } catch (e) {
+            alert('删除分段失败');
+          }
+        };
+
+        const saveRawDoc = async () => {
+          if (!currentDoc.value) return;
+          try {
+            await fetch('/api/documents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: currentDoc.value.name, content: currentDocRawContent.value }),
+            });
+            alert('原文保存成功！');
+            loadDocuments();
+          } catch (e) {
+            alert('保存失败');
+          }
+        };
+
+        // ── 新建文章与文件上传 ────────────────────────────────────
+        const openCreateModal = () => {
+          newDocName.value = '';
+          newDocContent.value = '';
+          showCreateModal.value = true;
+          nextTick(refreshIcons);
+        };
+
+        const handleFileUpload = (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          newDocName.value = file.name.replace(/\.txt$/i, '');
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            newDocContent.value = event.target.result;
+          };
+          reader.readAsText(file, 'utf-8');
+        };
+
+        const submitNewDoc = async () => {
+          try {
+            const res = await fetch('/api/documents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newDocName.value, content: newDocContent.value }),
+            });
+            if (!res.ok) throw new Error('创建文章失败');
+            showCreateModal.value = false;
+            await loadDocuments();
+            const created = documents.value.find(d => d.name === newDocName.value);
+            if (created) selectDocument(created);
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+
+        const deleteDoc = async (doc) => {
+          if (!confirm(`确定要删除文章《${doc.name}》及对应生成文件吗？`)) return;
+          try {
+            await fetch(`/api/documents/${doc.name}?clean_all=true`, { method: 'DELETE' });
+            if (currentDoc.value?.name === doc.name) currentDoc.value = null;
+            await loadDocuments();
+          } catch (e) {
+            alert('删除失败');
+          }
+        };
+
+        const saveSettings = async () => {
+          try {
+            await fetch('/api/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(config.value),
+            });
+            showSettings.value = false;
+            checkStatus();
+            alert('配置已成功保存！');
+          } catch (e) {
+            alert('保存配置失败');
+          }
+        };
+
+        // ── Master Audio 波形播放器 ──────────────────────────────
+        const onMasterAudioTimeUpdate = (e) => {
+          masterCurrentTime.value = e.target.currentTime || 0;
+        };
+
+        const onMasterAudioLoadedMetadata = (e) => {
+          masterDuration.value = e.target.duration || 0;
+        };
+
+        const onMasterSeekInput = (e) => {
+          const audioEl = document.getElementById('masterAudio');
+          const targetTime = parseFloat(e.target.value);
+          if (audioEl) {
+            audioEl.currentTime = targetTime;
+            masterCurrentTime.value = targetTime;
+          }
+        };
+
+        const togglePlayMaster = () => {
+          const audioEl = document.getElementById('masterAudio');
+          if (!audioEl) return;
+          if (audioEl.paused) {
+            audioEl.play().catch(e => console.error('播放失败', e));
+          } else {
+            audioEl.pause();
+          }
+        };
+
+        const seekMaster = (deltaSeconds) => {
+          const audioEl = document.getElementById('masterAudio');
+          if (!audioEl || !masterDuration.value) return;
+          const newTime = Math.max(0, Math.min(masterDuration.value, audioEl.currentTime + deltaSeconds));
+          audioEl.currentTime = newTime;
+          masterCurrentTime.value = newTime;
+        };
+
+        const setMasterPlaybackRate = (rate) => {
+          masterRate.value = rate;
+          const audioEl = document.getElementById('masterAudio');
+          if (audioEl) audioEl.playbackRate = rate;
+        };
+
+        const formatTime = (seconds) => {
+          if (!seconds || isNaN(seconds)) return '00:00';
+          const mins = Math.floor(seconds / 60);
+          const secs = Math.floor(seconds % 60);
+          return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        };
+
+        const getTaskDesc = () => {
+          const t = task.value.type;
+          if (t === 'all') return '全流程生成中 (分段 -> 语音 -> 320k立体声与BGM合并)';
+          if (t === 'split') return '智能分段中 (调用 LLM)...';
+          if (t === 'tts') return '语音合成中 (调用 ComfyUI)...';
+          if (t === 'retts') return '分段重新生成中 (自动合成 320k 立体声)...';
+          if (t === 'merge') return '音频合并中 (FFmpeg 转为 320k 立体声)...';
+          if (t === 'stereo') return '正在转换为 320Kbps 双声道立体声母带...';
+          if (t === 'bgm') return '正在混音背景音乐 (320Kbps 立体声)...';
+          return '任务执行中...';
+        };
+
+        // ── WebSocket 实时通信 ────────────────────────────────────
+        const initWebSocket = () => {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsUrl = `${protocol}//${window.location.host}/ws/logs`;
+          const ws = new WebSocket(wsUrl);
+
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              
+              if (data.type === 'log') {
+                logs.value.push(data);
+                hasNewLogs.value = true;
+                nextTick(() => {
+                  if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
+                });
+              } else if (data.type === 'progress') {
+                task.value.current = data.current;
+                task.value.total = data.total;
+                task.value.percent = data.percent;
+                task.value.preview = data.preview;
+              } else if (data.type === 'task_status') {
+                if (data.status === 'running') {
+                  task.value.isRunning = true;
+                  task.value.type = data.task_type;
+                } else {
+                  task.value.isRunning = false;
+                  // 任务结束，重新加载数据并刷新音频
+                  if (currentDoc.value) {
+                    loadSegments(currentDoc.value.name);
+                    loadDocuments();
+                    masterAudioTimestamp.value = Date.now();
+                  }
+                }
+              }
+            } catch (e) {}
+          };
+
+          ws.onclose = () => {
+            setTimeout(initWebSocket, 3000);
+          };
+        };
+
+        const refreshIcons = () => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        };
+
+        onMounted(() => {
+          loadDocuments();
+          loadConfig();
+          loadBgmFiles();
+          checkStatus();
+          initWebSocket();
+          setInterval(checkStatus, 15000);
+        });
+
+        watch(activeTab, (tab) => {
+          if (tab === 'merge' && currentDoc.value?.has_output) {
+            masterAudioTimestamp.value = Date.now();
+          }
+          nextTick(refreshIcons);
+        });
+
+        watch([showConsole, showSettings, showCreateModal], () => {
+          nextTick(refreshIcons);
+        });
+
+        return {
+          documents,
+          currentDoc,
+          currentDocRawContent,
+          segments,
+          selectedSegments,
+          activeTab,
+          docSearch,
+          filteredDocuments,
+          isAllSelected,
+          loadingDocs,
+          status,
+          config,
+          task,
+          logs,
+          showConsole,
+          hasNewLogs,
+          logBox,
+          showCreateModal,
+          showSettings,
+          newDocName,
+          newDocContent,
+          isPlayingMaster,
+          masterCurrentTime,
+          masterDuration,
+          masterRate,
+          masterAudioTimestamp,
+          onMasterAudioTimeUpdate,
+          onMasterAudioLoadedMetadata,
+          onMasterSeekInput,
+          bgmFiles,
+          selectedBgm,
+          bgmVolume,
+          playingBgmName,
+          isPlayingBgm,
+          loadBgmFiles,
+          uploadBgm,
+          deleteBgm,
+          togglePreviewBgm,
+          getBgmDuration,
+          loadDocuments,
+          selectDocument,
+          runPipeline,
+          cancelPipeline,
+          regenerateSingle,
+          regenerateSelected,
+          saveSingleSegment,
+          toggleSelectAll,
+          mergeWithNext,
+          insertSegmentAt,
+          deleteSingleSegment,
+          saveRawDoc,
+          openCreateModal,
+          handleFileUpload,
+          submitNewDoc,
+          deleteDoc,
+          checkStatus,
+          saveSettings,
+          togglePlayMaster,
+          seekMaster,
+          setMasterPlaybackRate,
+          formatTime,
+          getTaskDesc,
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
+
