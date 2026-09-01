@@ -171,6 +171,20 @@
       </div>
     </header>
 
+    <!-- 全局轻提示 Toast (跟听与操作反馈) -->
+    <transition enter-active-class="transition duration-200 ease-out transform"
+                enter-from-class="opacity-0 -translate-y-4"
+                enter-to-class="opacity-100 translate-y-0"
+                leave-active-class="transition duration-150 ease-in transform"
+                leave-from-class="opacity-100 translate-y-0"
+                leave-to-class="opacity-0 -translate-y-4">
+      <div v-if="reviewToast"
+           class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900/95 border border-indigo-500/60 text-indigo-200 text-xs font-semibold rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+        <span>{{ reviewToast }}</span>
+      </div>
+    </transition>
+
     <!-- 主工作区：左右双栏 -->
     <div class="flex-1 flex overflow-hidden">
       
@@ -363,7 +377,7 @@
           </div>
 
           <!-- TAB 2 内容：分段微调与语音合成 (核心工作区) -->
-          <div v-show="activeTab === 'tts'" class="flex-1 flex flex-col overflow-hidden">
+          <div v-show="activeTab === 'tts'" class="flex-1 flex flex-col overflow-hidden relative">
             
             <!-- 分段操作工具栏 -->
             <div class="p-4 border-b border-slate-800/80 bg-slate-900/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -391,6 +405,35 @@
                   <i data-lucide="play" class="w-3.5 h-3.5"></i>
                   <span>全量生成语音</span>
                 </button>
+
+                <div class="h-4 w-px bg-slate-700"></div>
+
+                <!-- 自动跟听按钮 (Auto-Follow Listening) -->
+                <button v-if="!isReviewing"
+                        @click="startAutoReview()"
+                        :disabled="task.isRunning || audioSegmentsCount === 0"
+                        class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-600/20 active:scale-95 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                        :title="audioSegmentsCount > 0 ? '从头顺次播放所有段落，支持 M 键快速标记待修改' : '暂无已生成音频'">
+                  <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
+                  <span>一键自动跟听 ({{ audioSegmentsCount }}/{{ segments.length }})</span>
+                </button>
+
+                <button v-else
+                        @click="stopAutoReview"
+                        class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 active:scale-95 transition flex items-center gap-1.5 animate-pulse"
+                        title="停止自动跟听 (快捷键: Esc)">
+                  <i data-lucide="square" class="w-3.5 h-3.5 fill-white"></i>
+                  <span>退出跟听模式</span>
+                </button>
+
+                <!-- 待修改徽章提示 (若有标记) -->
+                <div v-if="flaggedSegments.length > 0" class="flex items-center gap-1.5 bg-amber-950/50 border border-amber-500/40 px-2.5 py-1 rounded-lg text-xs font-medium text-amber-300">
+                  <i data-lucide="flag" class="w-3.5 h-3.5 text-amber-400"></i>
+                  <span>待修改: <b>{{ flaggedSegments.length }}</b> 段</span>
+                  <button @click="clearAllFlags" class="ml-1 text-slate-400 hover:text-rose-300 transition" title="清空全部标记">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                  </button>
+                </div>
               </div>
 
               <!-- 发音参数快速调节 -->
@@ -420,7 +463,47 @@
             </div>
 
             <!-- 分段卡片流式列表 -->
-            <div class="flex-1 overflow-y-auto p-6 space-y-4">
+            <div id="segmentListContainer" class="flex-1 overflow-y-auto p-6 space-y-4">
+              
+              <!-- 待修改段落汇总引导条 (跟听结束或标记后显现) -->
+              <div v-if="flaggedSegments.length > 0 && !isReviewing"
+                   class="p-4 bg-gradient-to-r from-amber-950/70 via-slate-900/90 to-purple-950/70 border border-amber-500/50 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                    <i data-lucide="flag" class="w-5 h-5"></i>
+                  </div>
+                  <div>
+                    <div class="text-xs font-bold text-amber-200 flex items-center gap-2">
+                      <span>跟听已标记 {{ flaggedSegments.length }} 个待修改段落</span>
+                      <span class="font-mono text-[11px] text-amber-400/90 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/50">
+                        #{{ flaggedSegments.map(i => String(i).padStart(3, '0')).join(', #') }}
+                      </span>
+                    </div>
+                    <p class="text-[11px] text-slate-300 mt-0.5">
+                      已自动勾选这些段落。您可以直接在下方对应卡片中修改文本，然后点击右侧一键批量重新生成。
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                  <button @click="scrollToFirstFlagged"
+                          class="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+                    <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span>定位待修改段</span>
+                  </button>
+                  <button @click="regenerateFlagged"
+                          :disabled="task.isRunning"
+                          class="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition flex items-center gap-1.5 disabled:opacity-40">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                    <span>一键重制待修改 ({{ flaggedSegments.length }}段)</span>
+                  </button>
+                  <button @click="clearAllFlags"
+                          class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition"
+                          title="清空标记">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              </div>
+
               <div v-if="segments.length === 0" class="text-center py-20 text-slate-500">
                 <i data-lucide="scissors" class="w-10 h-10 mx-auto mb-2 text-slate-600"></i>
                 <p>当前文章尚未分段，请前往【步骤 1】执行智能分段</p>
@@ -428,15 +511,35 @@
 
               <!-- 单个分段卡片 -->
               <div v-for="(seg, idx) in segments" :key="seg.idx"
-                   class="glass-card rounded-2xl p-4 transition-all duration-200 border"
-                   :class="selectedSegments.includes(seg.idx) ? 'border-indigo-500/70 bg-indigo-950/20' : 'border-slate-800/80 hover:border-slate-700'">
+                   :id="'seg-card-' + seg.idx"
+                   class="glass-card rounded-2xl p-4 transition-all duration-300 border relative"
+                   :class="{
+                     'border-emerald-500 ring-2 ring-emerald-500/50 bg-emerald-950/20 shadow-xl shadow-emerald-950/50': isReviewing && reviewCurrentIdx === seg.idx,
+                     'border-amber-500/80 bg-amber-950/20 shadow-md shadow-amber-950/30': flaggedSegments.includes(seg.idx) && !(isReviewing && reviewCurrentIdx === seg.idx),
+                     'border-indigo-500/70 bg-indigo-950/20': selectedSegments.includes(seg.idx) && !flaggedSegments.includes(seg.idx) && !(isReviewing && reviewCurrentIdx === seg.idx),
+                     'border-slate-800/80 hover:border-slate-700': !selectedSegments.includes(seg.idx) && !flaggedSegments.includes(seg.idx) && !(isReviewing && reviewCurrentIdx === seg.idx)
+                   }">
                 
                 <div class="flex items-start justify-between gap-4 mb-3">
-                  <div class="flex items-center gap-3">
+                  <div class="flex items-center gap-3 flex-wrap">
                     <input type="checkbox" :value="seg.idx" v-model="selectedSegments" class="rounded accent-indigo-600 w-4 h-4">
                     
                     <span class="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-slate-800 border border-slate-700 text-indigo-300">
                       #{{ String(seg.idx).padStart(3, '0') }}
+                    </span>
+
+                    <!-- 跟听状态指示 -->
+                    <span v-if="isReviewing && reviewCurrentIdx === seg.idx"
+                          class="flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-500/60 px-2 py-0.5 rounded shadow animate-pulse">
+                      <i data-lucide="headphones" class="w-3 h-3 text-emerald-400"></i>
+                      <span>正在跟听中...</span>
+                    </span>
+
+                    <!-- 待修改徽章 -->
+                    <span v-if="flaggedSegments.includes(seg.idx)"
+                          class="flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-950/90 border border-amber-500/60 px-2 py-0.5 rounded shadow">
+                      <i data-lucide="flag" class="w-3 h-3 text-amber-400 fill-amber-400"></i>
+                      <span>待修改 / 待重录</span>
                     </span>
 
                     <span class="text-xs px-2 py-0.5 rounded font-mono"
@@ -455,14 +558,32 @@
                   </div>
 
                   <!-- 单段操作工具 -->
-                  <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- 标记待修改快速按钮 -->
+                    <button @click="toggleFlagSegment(seg.idx)"
+                            class="px-2 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1"
+                            :class="flaggedSegments.includes(seg.idx) ? 'bg-amber-500/30 text-amber-300 border border-amber-500/60 shadow-sm' : 'text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 border border-transparent'"
+                            :title="flaggedSegments.includes(seg.idx) ? '取消待修改标记' : '标记为此段待修改'">
+                      <i data-lucide="flag" class="w-3.5 h-3.5" :class="{'fill-amber-400 text-amber-400': flaggedSegments.includes(seg.idx)}"></i>
+                      <span>{{ flaggedSegments.includes(seg.idx) ? '已标记' : '标记待改' }}</span>
+                    </button>
+
+                    <!-- 从此处开始自动跟听 -->
+                    <button v-if="seg.has_audio"
+                            @click="startAutoReview(seg.idx)"
+                            class="px-2 py-1 rounded-lg text-xs font-medium text-slate-300 hover:text-emerald-300 bg-slate-800/80 hover:bg-emerald-950/50 border border-slate-700/60 hover:border-emerald-500/50 transition flex items-center gap-1"
+                            title="从该段开始向后连续自动跟听">
+                      <i data-lucide="headphones" class="w-3.5 h-3.5 text-emerald-400"></i>
+                      <span class="hidden sm:inline">从这跟听</span>
+                    </button>
+
                     <!-- 单段重新生成语音 (秒级调优) -->
                     <button @click="regenerateSingle(seg.idx)"
                             :disabled="task.isRunning"
                             class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow transition flex items-center gap-1 disabled:opacity-40"
                             title="单独生成/重新生成此段语音">
                       <i data-lucide="mic" class="w-3 h-3"></i>
-                      <span>{{ seg.has_audio ? '重新生成此段' : '生成此段语音' }}</span>
+                      <span>{{ seg.has_audio ? '重生成' : '生成' }}</span>
                     </button>
 
                     <!-- 下拉菜单 / 快捷操作 -->
@@ -485,7 +606,8 @@
                           @blur="saveSingleSegment(seg)"
                           @input="seg.chars = seg.text.length"
                           rows="2"
-                          class="w-full bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-slate-200 placeholder-slate-600 text-sm leading-relaxed focus:outline-none focus:border-indigo-500/50 resize-y transition"></textarea>
+                          class="w-full bg-slate-950/60 border rounded-xl p-3 text-slate-200 placeholder-slate-600 text-sm leading-relaxed focus:outline-none resize-y transition"
+                          :class="flaggedSegments.includes(seg.idx) ? 'border-amber-500/60 focus:border-amber-400 ring-1 ring-amber-500/30' : 'border-slate-800 focus:border-indigo-500/50'"></textarea>
 
                 <!-- 分段音频试听条 -->
                 <div v-if="seg.has_audio" class="mt-3 flex items-center gap-3 bg-slate-950/50 p-2 rounded-xl border border-slate-800/80">
@@ -496,6 +618,111 @@
                 </div>
               </div>
             </div>
+
+            <!-- 自动跟听悬浮控制面板 (Floating Follow-up Review Dock) -->
+            <transition enter-active-class="transition duration-300 ease-out transform"
+                        enter-from-class="translate-y-full opacity-0"
+                        enter-to-class="translate-y-0 opacity-100"
+                        leave-active-class="transition duration-200 ease-in transform"
+                        leave-from-class="translate-y-0 opacity-100"
+                        leave-to-class="translate-y-full opacity-0">
+              <div v-if="isReviewing"
+                   class="absolute bottom-4 left-6 right-6 z-30 glass-card bg-slate-900/95 backdrop-blur-xl border border-emerald-500/50 shadow-2xl rounded-2xl p-3.5 flex flex-col md:flex-row items-center justify-between gap-3 text-slate-200">
+                
+                <!-- 左侧：正在播放的段落信息与摘要 -->
+                <div class="flex items-center gap-3 min-w-0 flex-1 w-full md:w-auto">
+                  <div class="w-9 h-9 rounded-xl bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shrink-0 shadow-sm">
+                    <i data-lucide="headphones" class="w-4 h-4 animate-bounce"></i>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs font-bold text-emerald-400">
+                        #{{ String(currentReviewSeg?.idx || 1).padStart(3, '0') }}
+                      </span>
+                      <span class="text-[11px] text-slate-400 font-mono">
+                        ({{ currentReviewIndexInQueue + 1 }}/{{ reviewQueue.length }})
+                      </span>
+                      <span class="text-[11px] font-mono text-indigo-300">
+                        {{ formatTime(reviewCurrentTime) }} / {{ formatTime(reviewDuration) }}
+                      </span>
+                    </div>
+                    <p class="text-xs text-slate-300 truncate max-w-md" :title="currentReviewSeg?.text">
+                      {{ currentReviewSeg?.text || '正在准备音频...' }}
+                    </p>
+                  </div>
+                </div>
+
+                <!-- 中间：核心播放与标记按键 -->
+                <div class="flex items-center gap-2 shrink-0">
+                  <!-- 上一段 -->
+                  <button @click="reviewPrev" :disabled="currentReviewIndexInQueue <= 0"
+                          class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition disabled:opacity-30"
+                          title="上一段 (快捷键: 左方向键 ←)">
+                    <i data-lucide="skip-back" class="w-4 h-4"></i>
+                  </button>
+
+                  <!-- 重听当前段 -->
+                  <button @click="reviewReplay"
+                          class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                          title="重听当前段">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                  </button>
+
+                  <!-- 播放 / 暂停 -->
+                  <button @click="toggleReviewPlay"
+                          class="w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 transition"
+                          :title="isReviewPlaying ? '暂停 (快捷键: 空格键)' : '继续播放 (快捷键: 空格键)'">
+                    <svg v-if="!isReviewPlaying" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white translate-x-0.5" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>
+                  </button>
+
+                  <!-- 下一段 -->
+                  <button @click="reviewNext" :disabled="currentReviewIndexInQueue >= reviewQueue.length - 1"
+                          class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition disabled:opacity-30"
+                          title="下一段 (快捷键: 右方向键 →)">
+                    <i data-lucide="skip-forward" class="w-4 h-4"></i>
+                  </button>
+
+                  <div class="h-5 w-px bg-slate-700 mx-1"></div>
+
+                  <!-- 标记待修改核心按键 (高亮醒目) -->
+                  <button @click="toggleFlagCurrentSegment"
+                          class="px-3.5 py-2 rounded-xl font-bold text-xs shadow-md transition flex items-center gap-1.5 active:scale-95"
+                          :class="isCurrentSegmentFlagged ? 'bg-amber-500 text-slate-950 border border-amber-400 ring-2 ring-amber-400/40' : 'bg-slate-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/50'"
+                          title="标记当前段为待修改 (快捷键: M 键)">
+                    <i data-lucide="flag" class="w-4 h-4" :class="{'fill-slate-950': isCurrentSegmentFlagged}"></i>
+                    <span>{{ isCurrentSegmentFlagged ? '已标记待修改 [M]' : '标记待修改 [M]' }}</span>
+                  </button>
+                </div>
+
+                <!-- 右侧：倍速、已标记数量与退出 -->
+                <div class="flex items-center gap-2.5 shrink-0">
+                  <!-- 倍速选择 -->
+                  <div class="flex items-center gap-1 bg-slate-950/60 p-1 rounded-lg border border-slate-800">
+                    <button v-for="rate in [1.0, 1.25, 1.5, 2.0]" :key="rate"
+                            @click="setReviewRate(rate)"
+                            class="px-2 py-0.5 rounded text-[11px] font-mono transition"
+                            :class="reviewRate === rate ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'">
+                      {{ rate }}x
+                    </button>
+                  </div>
+
+                  <!-- 待修改计数徽章 -->
+                  <div class="px-2.5 py-1 rounded-lg text-xs font-mono bg-amber-950/60 text-amber-300 border border-amber-800/60"
+                       :title="'已累计标记 ' + flaggedSegments.length + ' 个待修改段落'">
+                    🚩 {{ flaggedSegments.length }}
+                  </div>
+
+                  <!-- 退出跟听按钮 -->
+                  <button @click="stopAutoReview"
+                          class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs transition"
+                          title="退出跟听 (快捷键: Esc)">
+                    退出跟听
+                  </button>
+                </div>
+
+              </div>
+            </transition>
           </div>
 
           <!-- TAB 3 内容：母带合并与导出 (Audio Master) -->
@@ -1055,6 +1282,40 @@
         const masterDuration = ref(0);
         const masterRate = ref(1.0);
 
+        // 自动跟听与待修改标记 (Auto-Follow Review System)
+        let reviewAudio = null;
+        const isReviewing = ref(false);
+        const isReviewPlaying = ref(false);
+        const reviewRate = ref(1.0);
+        const reviewCurrentIdx = ref(null);
+        const reviewCurrentTime = ref(0);
+        const reviewDuration = ref(0);
+        const flaggedSegments = ref([]); // 存储标记待修改的段落 idx
+        const reviewToast = ref('');
+
+        const audioSegmentsCount = computed(() => {
+          return segments.value.filter(s => s.has_audio).length;
+        });
+
+        const reviewQueue = computed(() => {
+          return segments.value.filter(s => s.has_audio);
+        });
+
+        const currentReviewSeg = computed(() => {
+          if (reviewCurrentIdx.value === null) return null;
+          return segments.value.find(s => s.idx === reviewCurrentIdx.value) || null;
+        });
+
+        const currentReviewIndexInQueue = computed(() => {
+          if (reviewCurrentIdx.value === null) return -1;
+          return reviewQueue.value.findIndex(s => s.idx === reviewCurrentIdx.value);
+        });
+
+        const isCurrentSegmentFlagged = computed(() => {
+          if (reviewCurrentIdx.value === null) return false;
+          return flaggedSegments.value.includes(reviewCurrentIdx.value);
+        });
+
         // 背景音乐 (BGM)
         let bgmAudio = null;
         const bgmFiles = ref([]);
@@ -1121,6 +1382,8 @@
         const selectDocument = async (doc) => {
           currentDoc.value = doc;
           selectedSegments.value = [];
+          stopAutoReview();
+          flaggedSegments.value = [];
           
           // 重置母带播放器状态
           const audioEl = document.getElementById('masterAudio');
@@ -1429,6 +1692,251 @@
           }
         };
 
+        // ── 自动跟听与标记待修改系统 ────────────────────────────────
+        const showReviewToast = (msg) => {
+          reviewToast.value = msg;
+          setTimeout(() => {
+            if (reviewToast.value === msg) reviewToast.value = '';
+          }, 3200);
+          nextTick(refreshIcons);
+        };
+
+        const scrollToSegmentCard = (idx) => {
+          nextTick(() => {
+            const el = document.getElementById(`seg-card-${idx}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
+        };
+
+        const scrollToFirstFlagged = () => {
+          if (flaggedSegments.value.length > 0) {
+            scrollToSegmentCard(flaggedSegments.value[0]);
+          }
+        };
+
+        const toggleFlagSegment = (idx) => {
+          const pos = flaggedSegments.value.indexOf(idx);
+          if (pos >= 0) {
+            flaggedSegments.value.splice(pos, 1);
+            // 取消勾选
+            const selPos = selectedSegments.value.indexOf(idx);
+            if (selPos >= 0) selectedSegments.value.splice(selPos, 1);
+            showReviewToast(`已取消第 #${String(idx).padStart(3, '0')} 段的待修改标记`);
+          } else {
+            flaggedSegments.value.push(idx);
+            flaggedSegments.value.sort((a, b) => a - b);
+            // 自动加入批量操作选中列表
+            if (!selectedSegments.value.includes(idx)) {
+              selectedSegments.value.push(idx);
+            }
+            showReviewToast(`🚩 已标记第 #${String(idx).padStart(3, '0')} 段待修改 (共 ${flaggedSegments.value.length} 段)`);
+          }
+          nextTick(refreshIcons);
+        };
+
+        const toggleFlagCurrentSegment = () => {
+          if (reviewCurrentIdx.value !== null) {
+            toggleFlagSegment(reviewCurrentIdx.value);
+          }
+        };
+
+        const clearAllFlags = () => {
+          if (flaggedSegments.value.length === 0) return;
+          flaggedSegments.value = [];
+          showReviewToast('已清空所有待修改标记');
+          nextTick(refreshIcons);
+        };
+
+        const regenerateFlagged = () => {
+          if (flaggedSegments.value.length === 0) return;
+          selectedSegments.value = [...flaggedSegments.value];
+          runPipeline('retts', flaggedSegments.value);
+        };
+
+        const initReviewAudio = () => {
+          if (!reviewAudio) {
+            reviewAudio = new Audio();
+            reviewAudio.ontimeupdate = () => {
+              reviewCurrentTime.value = reviewAudio.currentTime || 0;
+            };
+            reviewAudio.onloadedmetadata = () => {
+              reviewDuration.value = reviewAudio.duration || 0;
+            };
+            reviewAudio.onplay = () => {
+              isReviewPlaying.value = true;
+            };
+            reviewAudio.onpause = () => {
+              isReviewPlaying.value = false;
+            };
+            reviewAudio.onended = () => {
+              // 当前段听毕，平滑过渡播放下一段
+              onReviewSegmentEnded();
+            };
+            reviewAudio.onerror = (e) => {
+              console.error('跟听音频加载失败', e);
+              showReviewToast('音频加载出错，准备播放下一段...');
+              setTimeout(reviewNext, 800);
+            };
+          }
+        };
+
+        const startAutoReview = (fromIdx = null) => {
+          const q = reviewQueue.value;
+          if (q.length === 0) {
+            alert('当前没有已生成的音频分段，请先点击【全量生成语音】');
+            return;
+          }
+
+          // 暂停母带与 BGM 播放
+          const masterEl = document.getElementById('masterAudio');
+          if (masterEl) masterEl.pause();
+          if (bgmAudio) bgmAudio.pause();
+
+          initReviewAudio();
+          isReviewing.value = true;
+
+          // 确定起始播放段落
+          let targetIdx = q[0].idx;
+          if (fromIdx !== null) {
+            const found = q.find(s => s.idx === fromIdx);
+            if (found) targetIdx = found.idx;
+          } else if (selectedSegments.value.length > 0) {
+            const firstSel = q.find(s => selectedSegments.value.includes(s.idx));
+            if (firstSel) targetIdx = firstSel.idx;
+          }
+
+          playReviewSegment(targetIdx);
+          window.addEventListener('keydown', handleReviewKeydown);
+          showReviewToast('已开启自动跟听 (空格暂停/播放，M 标记待修改)');
+          nextTick(refreshIcons);
+        };
+
+        const stopAutoReview = () => {
+          isReviewing.value = false;
+          isReviewPlaying.value = false;
+          if (reviewAudio) {
+            reviewAudio.pause();
+            reviewAudio.currentTime = 0;
+          }
+          window.removeEventListener('keydown', handleReviewKeydown);
+          nextTick(refreshIcons);
+        };
+
+        const playReviewSegment = (idx) => {
+          const seg = segments.value.find(s => s.idx === idx);
+          if (!seg || !seg.has_audio) return;
+
+          initReviewAudio();
+          reviewCurrentIdx.value = idx;
+          reviewCurrentTime.value = 0;
+          reviewDuration.value = 0;
+          
+          reviewAudio.src = seg.audio_url + '?t=' + (seg.audio_mtime || Date.now());
+          reviewAudio.playbackRate = reviewRate.value;
+          reviewAudio.play().catch(e => {
+            console.error('自动播放受阻或失败', e);
+          });
+
+          scrollToSegmentCard(idx);
+          nextTick(refreshIcons);
+        };
+
+        const toggleReviewPlay = () => {
+          if (!reviewAudio) return;
+          if (reviewAudio.paused) {
+            reviewAudio.play().catch(e => console.error(e));
+          } else {
+            reviewAudio.pause();
+          }
+        };
+
+        const onReviewSegmentEnded = () => {
+          const q = reviewQueue.value;
+          const currIdxInQ = currentReviewIndexInQueue.value;
+          if (currIdxInQ < q.length - 1) {
+            // 停顿 300ms 呼吸缓冲
+            setTimeout(() => {
+              if (isReviewing.value) {
+                playReviewSegment(q[currIdxInQ + 1].idx);
+              }
+            }, 300);
+          } else {
+            // 全文听毕
+            stopAutoReview();
+            if (flaggedSegments.value.length > 0) {
+              showReviewToast(`🎉 全文跟听完成！共标记了 ${flaggedSegments.value.length} 个待修改段落。`);
+            } else {
+              showReviewToast('🎉 全文跟听完成！全部段落听感良好。');
+            }
+          }
+        };
+
+        const reviewNext = () => {
+          const q = reviewQueue.value;
+          const currIdxInQ = currentReviewIndexInQueue.value;
+          if (currIdxInQ < q.length - 1) {
+            playReviewSegment(q[currIdxInQ + 1].idx);
+          } else {
+            stopAutoReview();
+            showReviewToast('已是最后一个音频段落');
+          }
+        };
+
+        const reviewPrev = () => {
+          const q = reviewQueue.value;
+          const currIdxInQ = currentReviewIndexInQueue.value;
+          if (reviewAudio && reviewAudio.currentTime > 1.5) {
+            reviewAudio.currentTime = 0;
+            reviewAudio.play().catch(e => console.error(e));
+          } else if (currIdxInQ > 0) {
+            playReviewSegment(q[currIdxInQ - 1].idx);
+          }
+        };
+
+        const reviewReplay = () => {
+          if (reviewAudio) {
+            reviewAudio.currentTime = 0;
+            reviewAudio.play().catch(e => console.error(e));
+          }
+        };
+
+        const setReviewRate = (rate) => {
+          reviewRate.value = rate;
+          if (reviewAudio) {
+            reviewAudio.playbackRate = rate;
+          }
+        };
+
+        const handleReviewKeydown = (e) => {
+          if (!isReviewing.value) return;
+          const tag = e.target?.tagName?.toLowerCase();
+          if (tag === 'textarea' || tag === 'input' || e.target?.isContentEditable) {
+            if (e.key === 'Escape') {
+              stopAutoReview();
+            }
+            return;
+          }
+
+          if (e.code === 'Space') {
+            e.preventDefault();
+            toggleReviewPlay();
+          } else if (e.key === 'm' || e.key === 'M') {
+            e.preventDefault();
+            toggleFlagCurrentSegment();
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            reviewNext();
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            reviewPrev();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            stopAutoReview();
+          }
+        };
+
         // ── Master Audio 波形播放器 ──────────────────────────────
         const onMasterAudioTimeUpdate = (e) => {
           masterCurrentTime.value = e.target.currentTime || 0;
@@ -1549,6 +2057,9 @@
         });
 
         watch(activeTab, (tab) => {
+          if (tab !== 'tts') {
+            stopAutoReview();
+          }
           if (tab === 'merge' && currentDoc.value?.has_output) {
             masterAudioTimestamp.value = Date.now();
           }
@@ -1622,6 +2133,33 @@
           setMasterPlaybackRate,
           formatTime,
           getTaskDesc,
+          // 跟听与标记相关
+          isReviewing,
+          isReviewPlaying,
+          reviewRate,
+          reviewCurrentIdx,
+          reviewCurrentTime,
+          reviewDuration,
+          flaggedSegments,
+          reviewToast,
+          audioSegmentsCount,
+          reviewQueue,
+          currentReviewSeg,
+          currentReviewIndexInQueue,
+          isCurrentSegmentFlagged,
+          startAutoReview,
+          stopAutoReview,
+          toggleReviewPlay,
+          reviewNext,
+          reviewPrev,
+          reviewReplay,
+          setReviewRate,
+          toggleFlagSegment,
+          toggleFlagCurrentSegment,
+          clearAllFlags,
+          regenerateFlagged,
+          scrollToFirstFlagged,
+          scrollToSegmentCard,
         };
       }
     }).mount('#app');

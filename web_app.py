@@ -17,6 +17,7 @@ import threading
 import subprocess
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import quote
 
 if hasattr(sys.stdout, 'reconfigure'):
     try:
@@ -665,7 +666,7 @@ def stream_bgm_audio(filename: str):
     target = BGM_DIR / filename
     if not target.exists():
         raise HTTPException(status_code=404, detail="背景音乐文件不存在")
-    return FileResponse(path=target, filename=filename)
+    return FileResponse(path=target, media_type="audio/mpeg")
 
 
 # ── 流水线执行接口 ──────────────────────────────────────────
@@ -841,7 +842,6 @@ def stream_segment_audio(name: str, filename: str):
     return FileResponse(
         path=audio_path,
         media_type="audio/mpeg",
-        filename=filename,
     )
 
 
@@ -855,22 +855,21 @@ def stream_output_audio(name: str):
     return FileResponse(
         path=audio_path,
         media_type="audio/mpeg",
-        filename=f"{clean_name}.mp3",
     )
 
 
 @app.get("/api/audio/download/{name}")
 def download_output_audio(name: str):
-    """下载最终合并音频"""
+    """下载最终合并音频 (支持中文文件名 RFC 5987 / RFC 6266 标准)"""
     clean_name = name.replace(".mp3", "")
     audio_path = OUTPUT_DIR / f"{clean_name}.mp3"
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail="音频文件不存在")
+    encoded_filename = quote(f"{clean_name}.mp3")
     return FileResponse(
         path=audio_path,
         media_type="audio/mpeg",
-        filename=f"{clean_name}.mp3",
-        headers={"Content-Disposition": f'attachment; filename="{clean_name}.mp3"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )
 
 
