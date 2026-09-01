@@ -18,3 +18,6 @@ input/*.txt
 
 # BGM
 bgm/*.mp3
+bgm/*.wav
+bgm/*.flac
+bgm/*.m4a
