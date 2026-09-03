@@ -462,48 +462,59 @@
               </div>
             </div>
 
-            <!-- 分段卡片流式列表 -->
-            <div id="segmentListContainer" class="flex-1 overflow-y-auto p-6 space-y-4">
-              
-              <!-- 待修改段落汇总引导条 (跟听结束或标记后显现) -->
+            <!-- 待修改段落汇总引导条 (固定在列表顶端，不随列表滚动) -->
+            <transition enter-active-class="transition duration-300 ease-out transform"
+                        enter-from-class="-translate-y-4 opacity-0"
+                        enter-to-class="translate-y-0 opacity-100"
+                        leave-active-class="transition duration-200 ease-in transform"
+                        leave-from-class="translate-y-0 opacity-100"
+                        leave-to-class="-translate-y-4 opacity-0">
               <div v-if="flaggedSegments.length > 0 && !isReviewing"
-                   class="p-4 bg-gradient-to-r from-amber-950/70 via-slate-900/90 to-purple-950/70 border border-amber-500/50 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-                <div class="flex items-center gap-3">
-                  <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-                    <i data-lucide="flag" class="w-5 h-5"></i>
-                  </div>
-                  <div>
-                    <div class="text-xs font-bold text-amber-200 flex items-center gap-2">
-                      <span>跟听已标记 {{ flaggedSegments.length }} 个待修改段落</span>
-                      <span class="font-mono text-[11px] text-amber-400/90 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/50">
-                        #{{ flaggedSegments.map(i => String(i).padStart(3, '0')).join(', #') }}
-                      </span>
+                   class="px-6 pt-4 shrink-0 z-20">
+                <div class="p-4 bg-gradient-to-r from-amber-950/80 via-slate-900/90 to-purple-950/80 border border-amber-500/50 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl backdrop-blur-md">
+                  <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                      <i data-lucide="flag" class="w-5 h-5"></i>
                     </div>
-                    <p class="text-[11px] text-slate-300 mt-0.5">
-                      已自动勾选这些段落。您可以直接在下方对应卡片中修改文本，然后点击右侧一键批量重新生成。
-                    </p>
+                    <div>
+                      <div class="text-xs font-bold text-amber-200 flex items-center gap-2">
+                        <span>跟听已标记 {{ flaggedSegments.length }} 个待修改段落</span>
+                        <span class="font-mono text-[11px] text-amber-400/90 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/50">
+                          #{{ flaggedSegments.map(i => String(i).padStart(3, '0')).join(', #') }}
+                        </span>
+                      </div>
+                      <p class="text-[11px] text-slate-300 mt-0.5">
+                        已自动勾选这些段落。您可以直接在下方对应卡片中修改文本，然后点击右侧一键批量重新生成。
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
-                  <button @click="scrollToFirstFlagged"
-                          class="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
-                    <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-indigo-400"></i>
-                    <span>定位待修改段</span>
-                  </button>
-                  <button @click="regenerateFlagged"
-                          :disabled="task.isRunning"
-                          class="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition flex items-center gap-1.5 disabled:opacity-40">
-                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                    <span>一键重制待修改 ({{ flaggedSegments.length }}段)</span>
-                  </button>
-                  <button @click="clearAllFlags"
-                          class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition"
-                          title="清空标记">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                  </button>
+                  <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                    <button @click="scrollToFirstFlagged"
+                            class="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+                      <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-indigo-400"></i>
+                      <span>定位待修改段</span>
+                    </button>
+                    <button @click="regenerateFlagged"
+                            :disabled="task.isRunning"
+                            class="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition flex items-center gap-1.5 disabled:opacity-40">
+                      <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                      <span>一键重制待修改 ({{ flaggedSegments.length }}段)</span>
+                    </button>
+                    <button @click="clearAllFlags"
+                            class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition"
+                            title="清空标记">
+                      <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
+            </transition>
 
+            <!-- 分段卡片流式列表 -->
+            <div id="segmentListContainer"
+                 class="flex-1 overflow-y-auto px-6 pb-6 space-y-4"
+                 :class="flaggedSegments.length > 0 && !isReviewing ? 'pt-3' : 'pt-6'">
+              
               <div v-if="segments.length === 0" class="text-center py-20 text-slate-500">
                 <i data-lucide="scissors" class="w-10 h-10 mx-auto mb-2 text-slate-600"></i>
                 <p>当前文章尚未分段，请前往【步骤 1】执行智能分段</p>
@@ -1586,8 +1597,17 @@
         const mergeWithNext = async (idx) => {
           if (!currentDoc.value) return;
           try {
-            await fetch(`/api/documents/${currentDoc.value.name}/segment/merge_next?idx=${idx}`, { method: 'POST' });
+            const res = await fetch(`/api/documents/${currentDoc.value.name}/segment/merge_next?idx=${idx}`, { method: 'POST' });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert('合并失败: ' + (err.detail || res.statusText));
+              return;
+            }
+            if (isReviewing.value) stopAutoReview();
+            selectedSegments.value = [];
+            flaggedSegments.value = [];
             await loadSegments(currentDoc.value.name);
+            loadDocuments();
           } catch (e) {
             alert('合并失败');
           }
@@ -1598,18 +1618,37 @@
           const text = prompt('请输入新段落内容:', '');
           if (text === null) return;
           try {
-            await fetch(`/api/documents/${currentDoc.value.name}/segment/insert?idx=${idx}&text=${encodeURIComponent(text)}`, { method: 'POST' });
+            const res = await fetch(`/api/documents/${currentDoc.value.name}/segment/insert?idx=${idx}&text=${encodeURIComponent(text)}`, { method: 'POST' });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert('插入分段失败: ' + (err.detail || res.statusText));
+              return;
+            }
+            if (isReviewing.value) stopAutoReview();
+            selectedSegments.value = [];
+            flaggedSegments.value = [];
             await loadSegments(currentDoc.value.name);
+            loadDocuments();
           } catch (e) {
             alert('插入分段失败');
           }
         };
 
         const deleteSingleSegment = async (idx) => {
-          if (!confirm(`确定要删除第 ${idx} 段吗？`)) return;
+          if (!confirm(`确定要删除第 ${idx} 段吗？对应录音也将被彻底清除！`)) return;
           try {
-            await fetch(`/api/documents/${currentDoc.value.name}/segment/delete?idx=${idx}`, { method: 'POST' });
+            const res = await fetch(`/api/documents/${currentDoc.value.name}/segment/delete?idx=${idx}`, { method: 'POST' });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert('删除分段失败: ' + (err.detail || res.statusText));
+              return;
+            }
+            if (isReviewing.value) stopAutoReview();
+            // 更新已标记与选中的段落序号：移除已删除段，后续段序号 -1
+            selectedSegments.value = selectedSegments.value.filter(i => i !== idx).map(i => i > idx ? i - 1 : i);
+            flaggedSegments.value = flaggedSegments.value.filter(i => i !== idx).map(i => i > idx ? i - 1 : i);
             await loadSegments(currentDoc.value.name);
+            loadDocuments();
           } catch (e) {
             alert('删除分段失败');
           }

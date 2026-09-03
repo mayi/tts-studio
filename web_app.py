@@ -433,7 +433,215 @@ def get_document_segments(name: str):
     return {"name": name, "segments": segments, "total": len(segments)}
 
 
-@app.post("/api/documents/{name}/segment/{idx}")
+@app.post("/api/documents/{name}/segment/split")
+def split_segment(name: str, idx: int = Query(...), position: int = Query(...)):
+    """在光标位置拆分段落"""
+    seg_dir = TEMP_DIR / name
+    if not seg_dir.exists():
+        raise HTTPException(status_code=404, detail="未找到分段目录")
+
+    txt_files = sorted(seg_dir.glob("*.txt"))
+    total_segments = len(txt_files)
+    if idx < 1 or idx > total_segments:
+        raise HTTPException(status_code=400, detail="段落索引无效")
+
+    existing_items = []
+    for i in range(1, total_segments + 1):
+        txt_path = seg_dir / f"{i:03d}.txt"
+        mp3_path = seg_dir / f"{i:03d}.mp3"
+        t = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+        a = mp3_path.read_bytes() if mp3_path.exists() else None
+        existing_items.append({"text": t, "audio_bytes": a})
+
+    target_idx = idx - 1
+    target_text = existing_items[target_idx]["text"]
+    if position <= 0 or position >= len(target_text):
+        raise HTTPException(status_code=400, detail="拆分位置超出范围")
+
+    part1 = target_text[:position].strip()
+    part2 = target_text[position:].strip()
+
+    # 拆分后的两段需要重新录制语音，因此 audio_bytes 置为 None
+    new_items = (
+        existing_items[:target_idx]
+        + [{"text": part1, "audio_bytes": None}, {"text": part2, "audio_bytes": None}]
+        + existing_items[target_idx + 1:]
+    )
+
+    for f in list(seg_dir.glob("*.txt")) + list(seg_dir.glob("*.mp3")):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    for i, item in enumerate(new_items, 1):
+        (seg_dir / f"{i:03d}.txt").write_text(item["text"], encoding="utf-8")
+        if item["audio_bytes"] is not None:
+            (seg_dir / f"{i:03d}.mp3").write_bytes(item["audio_bytes"])
+
+    input_file = INPUT_DIR / f"{name}.txt"
+    if input_file.exists():
+        input_file.write_text("\n\n".join(item["text"] for item in new_items), encoding="utf-8")
+
+    log_emitter(f"已将第 {idx} 段拆分为 2 段", "info")
+    return {"status": "ok", "total": len(new_items)}
+
+
+@app.post("/api/documents/{name}/segment/merge_next")
+def merge_with_next_segment(name: str, idx: int = Query(...)):
+    """与下一段合并"""
+    seg_dir = TEMP_DIR / name
+    if not seg_dir.exists():
+        raise HTTPException(status_code=404, detail="未找到分段目录")
+
+    txt_files = sorted(seg_dir.glob("*.txt"))
+    total_segments = len(txt_files)
+    if idx < 1 or idx >= total_segments:
+        raise HTTPException(status_code=400, detail="无下一段可合并")
+
+    existing_items = []
+    for i in range(1, total_segments + 1):
+        txt_path = seg_dir / f"{i:03d}.txt"
+        mp3_path = seg_dir / f"{i:03d}.mp3"
+        t = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+        a = mp3_path.read_bytes() if mp3_path.exists() else None
+        existing_items.append({"text": t, "audio_bytes": a})
+
+    target_idx = idx - 1
+    merged_text = (existing_items[target_idx]["text"] + " " + existing_items[target_idx + 1]["text"]).strip()
+
+    # 合并后的新段落文字已变，旧音频失效需重录
+    new_items = (
+        existing_items[:target_idx]
+        + [{"text": merged_text, "audio_bytes": None}]
+        + existing_items[target_idx + 2:]
+    )
+
+    for f in list(seg_dir.glob("*.txt")) + list(seg_dir.glob("*.mp3")):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    for i, item in enumerate(new_items, 1):
+        (seg_dir / f"{i:03d}.txt").write_text(item["text"], encoding="utf-8")
+        if item["audio_bytes"] is not None:
+            (seg_dir / f"{i:03d}.mp3").write_bytes(item["audio_bytes"])
+
+    input_file = INPUT_DIR / f"{name}.txt"
+    if input_file.exists():
+        input_file.write_text("\n\n".join(item["text"] for item in new_items), encoding="utf-8")
+
+    log_emitter(f"已将第 {idx} 段与第 {idx+1} 段合并", "info")
+    return {"status": "ok", "total": len(new_items)}
+
+
+@app.post("/api/documents/{name}/segment/delete")
+def delete_segment(name: str, idx: int = Query(...)):
+    """删除指定段落：彻底删除该段文本与录音，保持其余段落录音完整并向前顺移，同步更新母带"""
+    seg_dir = TEMP_DIR / name
+    if not seg_dir.exists():
+        raise HTTPException(status_code=404, detail="未找到分段目录")
+
+    txt_files = sorted(seg_dir.glob("*.txt"))
+    total_segments = len(txt_files)
+    if idx < 1 or idx > total_segments:
+        raise HTTPException(status_code=400, detail="段落序号超出范围")
+
+    # 1. 完整收集当前各段的文本与录音二进制
+    existing_items = []
+    for i in range(1, total_segments + 1):
+        txt_path = seg_dir / f"{i:03d}.txt"
+        mp3_path = seg_dir / f"{i:03d}.mp3"
+        t = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+        a = mp3_path.read_bytes() if mp3_path.exists() else None
+        existing_items.append({"text": t, "audio_bytes": a})
+
+    # 2. 移除目标段落 (被删除段落的音频丢弃，不再保留)
+    target_idx = idx - 1
+    existing_items.pop(target_idx)
+
+    # 3. 清理旧文件
+    for f in list(seg_dir.glob("*.txt")) + list(seg_dir.glob("*.mp3")):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    # 4. 重新连续编号写入 (后续段落的录音文件对应前移对齐)
+    for i, item in enumerate(existing_items, 1):
+        (seg_dir / f"{i:03d}.txt").write_text(item["text"], encoding="utf-8")
+        if item["audio_bytes"] is not None:
+            (seg_dir / f"{i:03d}.mp3").write_bytes(item["audio_bytes"])
+
+    # 5. 同步更新 input/{name}.txt
+    input_file = INPUT_DIR / f"{name}.txt"
+    if input_file.exists():
+        input_file.write_text("\n\n".join(item["text"] for item in existing_items), encoding="utf-8")
+
+    # 6. 母带同步处理：若所有剩余分段都有音频且之前已合成过母带，自动更新母带剔除已删段落录音
+    output_audio = OUTPUT_DIR / f"{name}.mp3"
+    if output_audio.exists():
+        remaining_mp3s = sorted(seg_dir.glob("*.mp3"))
+        if len(remaining_mp3s) == len(existing_items) and len(existing_items) > 0:
+            try:
+                tts_pipeline.step_merge_only(
+                    input_file if input_file.exists() else Path(f"{name}.txt"),
+                    log_callback=log_emitter,
+                )
+                log_emitter(f"母带音频已自动重新合并（已完全剔除第 {idx} 段音频）", "info")
+            except Exception as e:
+                log_emitter(f"母带重新合并提示: {e}", "warning")
+        else:
+            output_audio.unlink(missing_ok=True)
+
+    log_emitter(f"已彻底删除第 {idx} 段文本及录音，后续段落已自动对齐", "success")
+    return {"status": "ok", "deleted_idx": idx, "total": len(existing_items)}
+
+
+@app.post("/api/documents/{name}/segment/insert")
+def insert_segment(name: str, idx: int = Query(..., description="在此序号之后插入"), text: str = Query("")):
+    """插入新段落：其余段落录音向后顺延对齐"""
+    seg_dir = TEMP_DIR / name
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    txt_files = sorted(seg_dir.glob("*.txt"))
+    total_segments = len(txt_files)
+
+    existing_items = []
+    for i in range(1, total_segments + 1):
+        txt_path = seg_dir / f"{i:03d}.txt"
+        mp3_path = seg_dir / f"{i:03d}.mp3"
+        t = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+        a = mp3_path.read_bytes() if mp3_path.exists() else None
+        existing_items.append({"text": t, "audio_bytes": a})
+
+    insert_pos = min(max(0, idx), len(existing_items))
+    new_items = (
+        existing_items[:insert_pos]
+        + [{"text": text or "新段落内容", "audio_bytes": None}]
+        + existing_items[insert_pos:]
+    )
+
+    for f in list(seg_dir.glob("*.txt")) + list(seg_dir.glob("*.mp3")):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    for i, item in enumerate(new_items, 1):
+        (seg_dir / f"{i:03d}.txt").write_text(item["text"], encoding="utf-8")
+        if item["audio_bytes"] is not None:
+            (seg_dir / f"{i:03d}.mp3").write_bytes(item["audio_bytes"])
+
+    input_file = INPUT_DIR / f"{name}.txt"
+    if input_file.exists():
+        input_file.write_text("\n\n".join(item["text"] for item in new_items), encoding="utf-8")
+
+    log_emitter(f"已在位置 {insert_pos+1} 插入新段落", "info")
+    return {"status": "ok", "total": len(new_items)}
+
+
+@app.post("/api/documents/{name}/segment/{idx:int}")
 def update_single_segment(name: str, idx: int, data: SegmentUpdate):
     """即时更新单段文本"""
     seg_dir = TEMP_DIR / name
@@ -454,7 +662,10 @@ def save_all_segments(name: str, data: SegmentsBatchSave):
 
     # 清理所有旧 txt 与 mp3
     for f in seg_dir.glob("*.*"):
-        f.unlink()
+        try:
+            f.unlink()
+        except Exception:
+            pass
 
     # 写入新 txt
     for i, seg_text in enumerate(data.segments, 1):
@@ -468,116 +679,6 @@ def save_all_segments(name: str, data: SegmentsBatchSave):
 
     log_emitter(f"已更新 {len(data.segments)} 个分段", "success")
     return {"status": "ok", "total": len(data.segments)}
-
-
-@app.post("/api/documents/{name}/segment/split")
-def split_segment(name: str, idx: int = Query(...), position: int = Query(...)):
-    """在光标位置拆分段落"""
-    seg_dir = TEMP_DIR / name
-    if not seg_dir.exists():
-        raise HTTPException(status_code=404, detail="未找到分段目录")
-
-    txt_files = sorted(seg_dir.glob("*.txt"))
-    all_texts = [f.read_text(encoding="utf-8") for f in txt_files]
-
-    if idx < 1 or idx > len(all_texts):
-        raise HTTPException(status_code=400, detail="段落索引无效")
-
-    target_idx = idx - 1
-    target_text = all_texts[target_idx]
-    
-    if position <= 0 or position >= len(target_text):
-        raise HTTPException(status_code=400, detail="拆分位置超出范围")
-
-    part1 = target_text[:position].strip()
-    part2 = target_text[position:].strip()
-
-    new_texts = all_texts[:target_idx] + [part1, part2] + all_texts[target_idx+1:]
-    
-    # 重新落盘
-    for f in seg_dir.glob("*.*"):
-        f.unlink()
-
-    for i, t in enumerate(new_texts, 1):
-        (seg_dir / f"{i:03d}.txt").write_text(t, encoding="utf-8")
-
-    log_emitter(f"已将第 {idx} 段拆分为 2 段", "info")
-    return {"status": "ok", "total": len(new_texts)}
-
-
-@app.post("/api/documents/{name}/segment/merge_next")
-def merge_with_next_segment(name: str, idx: int = Query(...)):
-    """与下一段合并"""
-    seg_dir = TEMP_DIR / name
-    if not seg_dir.exists():
-        raise HTTPException(status_code=404, detail="未找到分段目录")
-
-    txt_files = sorted(seg_dir.glob("*.txt"))
-    all_texts = [f.read_text(encoding="utf-8") for f in txt_files]
-
-    if idx < 1 or idx >= len(all_texts):
-        raise HTTPException(status_code=400, detail="无下一段可合并")
-
-    target_idx = idx - 1
-    merged_text = (all_texts[target_idx] + " " + all_texts[target_idx + 1]).strip()
-
-    new_texts = all_texts[:target_idx] + [merged_text] + all_texts[target_idx+2:]
-
-    for f in seg_dir.glob("*.*"):
-        f.unlink()
-
-    for i, t in enumerate(new_texts, 1):
-        (seg_dir / f"{i:03d}.txt").write_text(t, encoding="utf-8")
-
-    log_emitter(f"已将第 {idx} 段与第 {idx+1} 段合并", "info")
-    return {"status": "ok", "total": len(new_texts)}
-
-
-@app.post("/api/documents/{name}/segment/delete")
-def delete_segment(name: str, idx: int = Query(...)):
-    """删除指定段落"""
-    seg_dir = TEMP_DIR / name
-    if not seg_dir.exists():
-        raise HTTPException(status_code=404, detail="未找到分段目录")
-
-    txt_files = sorted(seg_dir.glob("*.txt"))
-    all_texts = [f.read_text(encoding="utf-8") for f in txt_files]
-
-    if idx < 1 or idx > len(all_texts):
-        raise HTTPException(status_code=400, detail="段落序号超出范围")
-
-    target_idx = idx - 1
-    new_texts = all_texts[:target_idx] + all_texts[target_idx+1:]
-
-    for f in seg_dir.glob("*.*"):
-        f.unlink()
-
-    for i, t in enumerate(new_texts, 1):
-        (seg_dir / f"{i:03d}.txt").write_text(t, encoding="utf-8")
-
-    log_emitter(f"已删除第 {idx} 段", "info")
-    return {"status": "ok", "total": len(new_texts)}
-
-
-@app.post("/api/documents/{name}/segment/insert")
-def insert_segment(name: str, idx: int = Query(..., description="在此序号之后插入"), text: str = Query("")):
-    """插入新段落"""
-    seg_dir = TEMP_DIR / name
-    seg_dir.mkdir(parents=True, exist_ok=True)
-    txt_files = sorted(seg_dir.glob("*.txt"))
-    all_texts = [f.read_text(encoding="utf-8") for f in txt_files]
-
-    insert_pos = min(max(0, idx), len(all_texts))
-    new_texts = all_texts[:insert_pos] + [text or "新段落内容"] + all_texts[insert_pos:]
-
-    for f in seg_dir.glob("*.*"):
-        f.unlink()
-
-    for i, t in enumerate(new_texts, 1):
-        (seg_dir / f"{i:03d}.txt").write_text(t, encoding="utf-8")
-
-    log_emitter(f"已在位置 {insert_pos+1} 插入新段落", "info")
-    return {"status": "ok", "total": len(new_texts)}
 
 
 # ── 背景音乐 (BGM) 管理接口 ──────────────────────────────────
@@ -908,7 +1009,14 @@ def serve_spa():
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
         return HTMLResponse("<h1>TTS Studio 前端静态文件加载中...</h1>")
-    return FileResponse(index_file)
+    return FileResponse(
+        index_file,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
