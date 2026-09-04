@@ -737,126 +737,134 @@
           </div>
 
           <!-- TAB 3 内容：母带合并与导出 (Audio Master) -->
-          <div v-show="activeTab === 'merge'" class="flex-1 overflow-y-auto p-6 space-y-6">
-            <div class="max-w-4xl mx-auto space-y-6">
-              
-              <!-- 最终合成母带试听与下载卡片 (Master Player & Download) -->
-              <div class="glass-card rounded-2xl p-6 space-y-5">
-                <!-- 头部：标题与下载操作 -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-800/50 flex items-center justify-center text-indigo-400">
-                      <i data-lucide="disc" class="w-4 h-4"></i>
+          <div v-show="activeTab === 'merge'" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+            
+            <!-- 顶部固定预览区域：最终合成母带试听与下载 (Pinned Preview Dock) -->
+            <div class="shrink-0 px-6 pt-5 pb-3 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md z-10 shadow-md">
+              <div class="max-w-4xl mx-auto">
+                <!-- 最终合成母带试听与下载卡片 (Master Player & Download) -->
+                <div class="glass-card rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xl shadow-slate-950/40">
+                  <!-- 头部：标题与下载操作 -->
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <div class="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-800/50 flex items-center justify-center text-indigo-400 shrink-0">
+                        <i data-lucide="disc" class="w-4 h-4"></i>
+                      </div>
+                      <div class="min-w-0">
+                        <h2 class="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2 flex-wrap">
+                          <span>完整合成音频母带预览</span>
+                          <span v-if="currentDoc.has_output" class="px-2 py-0.5 bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 text-[10px] font-semibold rounded-full font-mono">
+                            ● 320Kbps 立体声
+                          </span>
+                        </h2>
+                        <p class="text-[11px] text-slate-400 truncate mt-0.5">包含全部分段并根据设置插入自然呼吸停顿与背景音乐，支持拖动进度条与倍速试听。</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
-                        <span>完整合成音频母带</span>
-                        <span v-if="currentDoc.has_output" class="px-2.5 py-0.5 bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 text-[11px] font-semibold rounded-full font-mono">
-                          ● 320Kbps 立体声
-                        </span>
-                      </h2>
-                      <p class="text-xs text-slate-400 mt-0.5">包含全部分段并根据设置插入自然呼吸停顿与背景音乐。</p>
-                    </div>
-                  </div>
 
-                  <!-- 顶部右侧：直接下载按钮 / 状态 -->
-                  <div class="flex items-center gap-3">
-                    <a v-if="currentDoc.has_output"
-                       :href="'/api/audio/download/' + currentDoc.name"
-                       class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 text-center"
-                       title="点击下载 320Kbps 高保真 MP3 文件">
-                      <i data-lucide="download" class="w-4 h-4"></i>
-                      <span>下载完整母带 ({{ (currentDoc.output_size / 1024 / 1024).toFixed(2) }} MB)</span>
-                    </a>
-                    <span v-else class="px-3 py-1.5 bg-slate-800/80 text-slate-400 text-xs font-medium rounded-xl border border-slate-700/50">
-                      尚未生成母带
-                    </span>
-                  </div>
-                </div>
-
-                <!-- 现代紧凑流式播放器控制台 (Sleek Audio Console) -->
-                <div class="bg-slate-950/90 rounded-xl p-4 border border-slate-800 space-y-3">
-                  <!-- 原生 HTML5 音频元素 -->
-                  <audio id="masterAudio"
-                         ref="masterAudioRef"
-                         :src="currentDoc?.has_output ? encodeURI('/api/audio/output/' + currentDoc.name) + '?t=' + masterAudioTimestamp : ''"
-                         @timeupdate="onMasterAudioTimeUpdate"
-                         @loadedmetadata="onMasterAudioLoadedMetadata"
-                         @play="isPlayingMaster = true"
-                         @pause="isPlayingMaster = false"
-                         @ended="isPlayingMaster = false"
-                         preload="auto"
-                         class="hidden"></audio>
-
-                  <!-- 进度拖动条与时间显示 -->
-                  <div class="space-y-1.5">
-                    <div class="flex items-center justify-between text-xs font-mono text-slate-400">
-                      <span class="text-indigo-400 font-semibold">{{ formatTime(masterCurrentTime) }}</span>
-                      <span class="text-slate-500"> / </span>
-                      <span>{{ formatTime(masterDuration) }}</span>
-                    </div>
-                    <div class="relative flex items-center">
-                      <input type="range"
-                             min="0"
-                             :max="masterDuration || 100"
-                             step="0.1"
-                             :value="masterCurrentTime"
-                             @input="onMasterSeekInput"
-                             :disabled="!currentDoc?.has_output"
-                             class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 disabled:opacity-40">
-                    </div>
-                  </div>
-                  
-                  <!-- 播放器核心控制栏 -->
-                  <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
-                    <div class="flex items-center gap-3">
-                      <!-- 播放/暂停 (主按钮) -->
-                      <button @click="togglePlayMaster"
-                              :disabled="!currentDoc?.has_output"
-                              class="w-11 h-11 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 transition disabled:opacity-40"
-                              :title="isPlayingMaster ? '暂停' : '播放'">
-                        <svg v-if="!isPlayingMaster" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white translate-x-0.5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                          <polygon points="6 3 20 12 6 21 6 3"></polygon>
-                        </svg>
-                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                          <rect x="6" y="4" width="4" height="16" rx="1"></rect>
-                          <rect x="14" y="4" width="4" height="16" rx="1"></rect>
-                        </svg>
-                      </button>
-
-                      <!-- 快退 5s / 快进 5s -->
-                      <button @click="seekMaster(-5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快退 5 秒">
-                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
-                      </button>
-                      <button @click="seekMaster(5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快进 5 秒">
-                        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
-                      </button>
-
-                      <!-- 状态指示 -->
-                      <span class="text-xs text-slate-400 flex items-center gap-1.5 ml-2">
-                        <span class="w-2 h-2 rounded-full" :class="isPlayingMaster ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'"></span>
-                        <span>{{ isPlayingMaster ? '正在播放母带' : (currentDoc?.has_output ? '就绪' : '等待生成') }}</span>
+                    <!-- 顶部右侧：直接下载按钮 / 状态 -->
+                    <div class="flex items-center gap-3 shrink-0">
+                      <a v-if="currentDoc.has_output"
+                         :href="'/api/audio/download/' + currentDoc.name"
+                         class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 text-center"
+                         title="点击下载 320Kbps 高保真 MP3 文件">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>下载完整母带 ({{ (currentDoc.output_size / 1024 / 1024).toFixed(2) }} MB)</span>
+                      </a>
+                      <span v-else class="px-3 py-1.5 bg-slate-800/80 text-slate-400 text-xs font-medium rounded-xl border border-slate-700/50">
+                        尚未生成母带
                       </span>
                     </div>
+                  </div>
 
-                    <!-- 播放倍速选择 -->
-                    <div class="flex items-center gap-1.5 text-xs text-slate-400">
-                      <span>倍速:</span>
-                      <button v-for="speed in [0.75, 1.0, 1.25, 1.5, 2.0]" :key="speed"
-                              @click="setMasterPlaybackRate(speed)"
-                              class="px-2.5 py-1 rounded-lg font-mono transition"
-                              :class="masterRate === speed ? 'bg-indigo-600 text-white font-semibold shadow' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'">
-                        {{ speed }}x
-                      </button>
+                  <!-- 现代紧凑流式播放器控制台 (Sleek Audio Console) -->
+                  <div class="bg-slate-950/90 rounded-xl p-3 sm:p-4 border border-slate-800 space-y-2.5">
+                    <!-- 原生 HTML5 音频元素 -->
+                    <audio id="masterAudio"
+                           ref="masterAudioRef"
+                           :src="currentDoc?.has_output ? encodeURI('/api/audio/output/' + currentDoc.name) + '?t=' + masterAudioTimestamp : ''"
+                           @timeupdate="onMasterAudioTimeUpdate"
+                           @loadedmetadata="onMasterAudioLoadedMetadata"
+                           @play="isPlayingMaster = true"
+                           @pause="isPlayingMaster = false"
+                           @ended="isPlayingMaster = false"
+                           preload="auto"
+                           class="hidden"></audio>
+
+                    <!-- 进度拖动条与时间显示 -->
+                    <div class="space-y-1">
+                      <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+                        <span class="text-indigo-400 font-semibold">{{ formatTime(masterCurrentTime) }}</span>
+                        <span class="text-slate-500"> / </span>
+                        <span>{{ formatTime(masterDuration) }}</span>
+                      </div>
+                      <div class="relative flex items-center">
+                        <input type="range"
+                               min="0"
+                               :max="masterDuration || 100"
+                               step="0.1"
+                               :value="masterCurrentTime"
+                               @input="onMasterSeekInput"
+                               :disabled="!currentDoc?.has_output"
+                               class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 disabled:opacity-40">
+                      </div>
+                    </div>
+                    
+                    <!-- 播放器核心控制栏 -->
+                    <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-0.5">
+                      <div class="flex items-center gap-3">
+                        <!-- 播放/暂停 (主按钮) -->
+                        <button @click="togglePlayMaster"
+                                :disabled="!currentDoc?.has_output"
+                                class="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 transition disabled:opacity-40"
+                                :title="isPlayingMaster ? '暂停' : '播放'">
+                          <svg v-if="!isPlayingMaster" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white translate-x-0.5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                          </svg>
+                          <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 fill-white text-white" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+                          </svg>
+                        </button>
+
+                        <!-- 快退 5s / 快进 5s -->
+                        <button @click="seekMaster(-5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快退 5 秒">
+                          <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                        </button>
+                        <button @click="seekMaster(5)" :disabled="!currentDoc?.has_output" class="p-2 text-slate-400 hover:text-white transition disabled:opacity-40 rounded-lg hover:bg-slate-900" title="快进 5 秒">
+                          <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+                        </button>
+
+                        <!-- 状态指示 -->
+                        <span class="text-xs text-slate-400 flex items-center gap-1.5 ml-1">
+                          <span class="w-2 h-2 rounded-full" :class="isPlayingMaster ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'"></span>
+                          <span>{{ isPlayingMaster ? '正在播放母带' : (currentDoc?.has_output ? '就绪' : '等待生成') }}</span>
+                        </span>
+                      </div>
+
+                      <!-- 播放倍速选择 -->
+                      <div class="flex items-center gap-1.5 text-xs text-slate-400">
+                        <span>倍速:</span>
+                        <button v-for="speed in [0.75, 1.0, 1.25, 1.5, 2.0]" :key="speed"
+                                @click="setMasterPlaybackRate(speed)"
+                                class="px-2.5 py-0.5 rounded-lg font-mono text-xs transition"
+                                :class="masterRate === speed ? 'bg-indigo-600 text-white font-semibold shadow' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'">
+                          {{ speed }}x
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <!-- 母带合成设置与一键生成控制台 (Card 2: Unified Mastering Studio) -->
-              <div class="glass-card rounded-2xl p-6 space-y-6">
-                <!-- 头部说明 -->
-                <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+            <!-- 下方独立可滚动区域：母带合成设置与一键生成控制台 -->
+            <div class="flex-1 overflow-y-auto px-6 py-5">
+              <div class="max-w-4xl mx-auto space-y-6 pb-12">
+                
+                <!-- 母带合成设置与一键生成控制台 (Card 2: Unified Mastering Studio) -->
+                <div class="glass-card rounded-2xl p-6 space-y-6">
+                  <!-- 头部说明 -->
+                  <div class="flex items-center justify-between pb-4 border-b border-slate-800">
                   <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-lg bg-purple-950/80 border border-purple-800/50 flex items-center justify-center text-purple-400">
                       <i data-lucide="sliders" class="w-4 h-4"></i>
@@ -877,41 +885,21 @@
                   </label>
                 </div>
 
-                <!-- 第 1 步：停顿与音质规格 -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <!-- 段间停顿调节 -->
-                  <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
-                    <div class="flex justify-between text-xs text-slate-200 font-medium">
-                      <span class="flex items-center gap-1.5">
-                        <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
-                        <span>段间停顿静音时长</span>
-                      </span>
-                      <span class="font-mono text-indigo-400 font-bold">{{ config.PAUSE_DURATION }} 秒</span>
-                    </div>
-                    <input type="range" min="0.2" max="3.0" step="0.1" v-model.number="config.PAUSE_DURATION" class="w-full accent-indigo-500">
-                    <p class="text-[11px] text-slate-400">在每个分段语音之间插入呼吸静音垫音，使整篇文章朗读听感自然舒适。</p>
+                <!-- 第 1 步：段间停顿静音时长调节 (默认采用 44.1kHz · 320Kbps 立体声) -->
+                <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+                  <div class="flex justify-between text-xs text-slate-200 font-medium">
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
+                      <span>段间停顿静音时长</span>
+                    </span>
+                    <span class="font-mono text-indigo-400 font-bold">{{ config.PAUSE_DURATION }} 秒</span>
                   </div>
-
-                  <!-- 音质输出规格 -->
-                  <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-2">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium text-slate-200 flex items-center gap-1.5">
-                        <i data-lucide="headphones" class="w-3.5 h-3.5 text-purple-400"></i>
-                        <span>输出声道与高保真规格</span>
-                      </span>
-                      <span class="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-                        44.1kHz · 立体声
-                      </span>
-                    </div>
-                    <div class="flex items-center justify-between p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80">
-                      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                        <input type="checkbox" v-model="config.STEREO" class="rounded accent-indigo-600 w-4 h-4">
-                        <span>合成为双声道立体声 (Stereo)</span>
-                      </label>
-                      <span class="font-mono text-[11px] text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800/50">
-                        320Kbps MP3
-                      </span>
-                    </div>
+                  <input type="range" min="0.2" max="3.0" step="0.1" v-model.number="config.PAUSE_DURATION" class="w-full accent-indigo-500">
+                  <div class="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>在每个分段语音之间插入呼吸静音垫音，使整篇文章朗读听感自然舒适。</span>
+                    <span class="font-mono text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40 shrink-0">
+                      默认规格: 320Kbps · 44.1kHz · 双声道立体声
+                    </span>
                   </div>
                 </div>
 
@@ -924,7 +912,7 @@
                       <span class="text-slate-500 font-normal font-mono text-[11px]">({{ bgmFiles.length }} 首可选)</span>
                     </span>
                     <span class="text-slate-400 text-[11px]">
-                      人声音量保持 100% 原始清晰，BGM 循环匹配并在结尾平滑淡出
+                      人声音量保持 100% 原始清晰，人声结束后 BGM 延长 5 秒平滑淡出
                     </span>
                   </div>
 
@@ -1046,16 +1034,6 @@
                   </div>
 
                   <div class="flex items-center gap-3 w-full sm:w-auto">
-                    <!-- 快速微调：仅单独重混 BGM (已有母带且选了BGM时显示) -->
-                    <button v-if="currentDoc.has_output && selectedBgm"
-                            @click="runPipeline('bgm')"
-                            :disabled="task.isRunning"
-                            class="w-full sm:w-auto px-4 py-2.5 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 rounded-xl text-xs font-semibold shadow transition flex items-center justify-center gap-1.5 disabled:opacity-40"
-                            title="无需重新合并分段，直接在现有母带上替换并混入当前背景音乐">
-                      <i data-lucide="disc" class="w-4 h-4"></i>
-                      <span>仅单独混入背景音乐</span>
-                    </button>
-
                     <!-- 主要按钮：一键生成完整母带 -->
                     <button @click="runPipeline('merge')"
                             :disabled="task.isRunning"
@@ -1070,9 +1048,10 @@
 
             </div>
           </div>
-
         </div>
-      </main>
+
+      </div>
+    </main>
 
     </div>
 
@@ -2033,7 +2012,6 @@
           if (t === 'retts') return '分段重新生成中 (自动合成 320k 立体声)...';
           if (t === 'merge') return '音频合并中 (FFmpeg 转为 320k 立体声)...';
           if (t === 'stereo') return '正在转换为 320Kbps 双声道立体声母带...';
-          if (t === 'bgm') return '正在混音背景音乐 (320Kbps 立体声)...';
           return '任务执行中...';
         };
 

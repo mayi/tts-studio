@@ -536,11 +536,29 @@ def convert_to_stereo(
     return target_out
 
 
+def get_audio_duration(file_path: Path) -> float:
+    """使用 ffprobe 获取音频文件的时长（秒）"""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        if res.returncode == 0 and res.stdout.strip():
+            return float(res.stdout.strip())
+    except Exception:
+        pass
+    return 0.0
+
+
 def mix_background_music(
     voice_path: Path,
     bgm_path: Path,
     output_path: Optional[Path] = None,
     bgm_volume: float = 0.15,
+    fade_duration: float = 5.0,
     bitrate: str = DEFAULT_BITRATE,
     log_callback: Optional[Callable[[str, str], None]] = None,
 ) -> Path:
@@ -548,7 +566,7 @@ def mix_background_music(
     将人声音频与背景音乐混合：
     1. 自动循环背景音乐匹配人声时长；
     2. 保持人声 100% 原始饱满音量，背景音乐按比例调低 (如 0.15 = 15%)；
-    3. 在人声结尾自动平滑淡出背景音乐；
+    3. 人声播毕后，背景音乐延长指定时长 (默认 5 秒) 平滑淡出收尾；
     4. 输出 320Kbps 双声道立体声 MP3。
     """
     def log(msg, level="info"):
@@ -571,11 +589,22 @@ def mix_background_music(
     voice_vol = 2.0
     bgm_vol = bgm_volume * 2.0
 
-    filter_complex = (
-        f"[0:a]volume={voice_vol:.2f},aformat=channel_layouts=stereo[voice];"
-        f"[1:a]volume={bgm_vol:.3f},aformat=channel_layouts=stereo[bgm];"
-        f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[out]"
-    )
+    voice_dur = get_audio_duration(voice_path)
+    if voice_dur > 0 and fade_duration > 0:
+        # 人声末尾补入 fade_duration 静音保持 amix 正常双路工作，BGM 从 voice_dur 开始淡出 fade_duration 秒
+        filter_complex = (
+            f"[0:a]volume={voice_vol:.2f},apad=pad_dur={fade_duration:.2f},aformat=channel_layouts=stereo[voice];"
+            f"[1:a]volume={bgm_vol:.3f},afade=t=out:st={voice_dur:.2f}:d={fade_duration:.2f},aformat=channel_layouts=stereo[bgm];"
+            f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0[out]"
+        )
+        fade_info = f"，人声结束后 BGM 延长 {fade_duration:.0f} 秒平滑淡出"
+    else:
+        filter_complex = (
+            f"[0:a]volume={voice_vol:.2f},aformat=channel_layouts=stereo[voice];"
+            f"[1:a]volume={bgm_vol:.3f},aformat=channel_layouts=stereo[bgm];"
+            f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[out]"
+        )
+        fade_info = ""
 
     cmd = [
         "ffmpeg", "-y",
@@ -591,7 +620,7 @@ def mix_background_music(
         str(temp_target)
     ]
 
-    log(f"  执行背景音乐混音 ({bgm_path.name}, 音量 {int(bgm_volume * 100)}%)...")
+    log(f"  执行背景音乐混音 ({bgm_path.name}, 音量 {int(bgm_volume * 100)}%{fade_info})...")
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if res.returncode != 0:
         err = res.stderr.decode("utf-8", errors="replace")

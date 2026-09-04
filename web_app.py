@@ -869,19 +869,6 @@ def run_pipeline_worker(req: PipelineRunRequest):
             )
             log_emitter(f"[{name}] 立体声转换完成！", "success")
 
-        elif step == "bgm":
-            if not bgm_path:
-                raise ValueError(f"未找到指定的背景音乐文件: {req.bgm_file}")
-            log_emitter(f"开始对 [{name}] 合成背景音乐 ({bgm_path.name}, 音量 {int(bgm_volume * 100)}%)...", "info")
-            tts_pipeline.step_bgm_only(
-                input_file,
-                bgm_path=bgm_path,
-                bgm_volume=bgm_volume,
-                bitrate=bitrate,
-                log_callback=log_emitter,
-            )
-            log_emitter(f"[{name}] 背景音乐合成完成！", "success")
-
         elif step == "all":
             log_emitter(f"开始执行 [{name}] 全流程自动化生成（包含 320Kbps 立体声与 BGM 混音）...", "info")
             tts_pipeline.process_file(
