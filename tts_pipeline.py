@@ -453,7 +453,8 @@ def generate_all_tts(
             continue
 
         preview = text[:40].replace("\n", " ")
-        log(f"  [{i}/{total}] 生成语音: {preview}...")
+        speed_str = f" [语速 {speed}x]" if speed is not None else ""
+        log(f"  [{i}/{total}] 生成语音{speed_str}: {preview}...")
         if progress_callback:
             progress_callback(i, total, preview)
 
@@ -566,6 +567,7 @@ def mix_background_music(
     将人声音频与背景音乐混合：
     1. 自动循环背景音乐匹配人声时长；
     2. 保持人声 100% 原始饱满音量，背景音乐按比例调低 (如 0.15 = 15%)；
+    3. 在人声结尾自动平滑淡出背景音乐；
     3. 人声播毕后，背景音乐延长指定时长 (默认 5 秒) 平滑淡出收尾；
     4. 输出 320Kbps 双声道立体声 MP3。
     """

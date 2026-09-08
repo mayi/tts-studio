@@ -816,9 +816,9 @@ def run_pipeline_worker(req: PipelineRunRequest):
         elif step in ["tts", "retts"]:
             only_set = set(req.segments) if req.segments else None
             if only_set:
-                log_emitter(f"开始对 [{name}] 重新生成指定分段: {sorted(only_set)} ...", "info")
+                log_emitter(f"开始对 [{name}] 重新生成指定分段: {sorted(only_set)} (发音人: {speaker_preset}, 语速: {speed}x)...", "info")
             else:
-                log_emitter(f"开始对 [{name}] 执行全量语音合成...", "info")
+                log_emitter(f"开始对 [{name}] 执行全量语音合成 (发音人: {speaker_preset}, 语速: {speed}x)...", "info")
 
             tts_pipeline.step_tts_only(
                 input_path=input_file,
