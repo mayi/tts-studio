@@ -15,6 +15,7 @@ import shutil
 import asyncio
 import threading
 import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from urllib.parse import quote
@@ -53,21 +54,6 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 BGM_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── FastAPI 实例 ──────────────────────────────────────────────
-app = FastAPI(
-    title="TTS Studio API",
-    description="现代化文章转语音智能工作台",
-    version="2.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ── WebSocket 日志广播管理器 ───────────────────────────────────
 class ConnectionManager:
     def __init__(self):
@@ -97,6 +83,30 @@ class ConnectionManager:
             asyncio.run_coroutine_threadsafe(self.broadcast_json(data), self._loop)
 
 ws_manager = ConnectionManager()
+
+# ── 生命周期管理 (Lifespan) ───────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_running_loop()
+    ws_manager.set_loop(loop)
+    tts_pipeline.reload_env()
+    yield
+
+# ── FastAPI 实例 ──────────────────────────────────────────────
+app = FastAPI(
+    title="TTS Studio API",
+    description="现代化文章转语音智能工作台",
+    version="2.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── 全局任务执行状态 ──────────────────────────────────────────
 class TaskManager:
@@ -217,13 +227,6 @@ class PipelineRunRequest(BaseModel):
 # ══════════════════════════════════════════════════════════════
 #  API 路由实现
 # ══════════════════════════════════════════════════════════════
-
-@app.on_event("startup")
-async def startup_event():
-    loop = asyncio.get_running_loop()
-    ws_manager.set_loop(loop)
-    tts_pipeline.reload_env()
-
 
 @app.get("/api/status")
 def get_system_status():
