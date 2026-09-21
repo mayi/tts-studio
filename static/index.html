@@ -162,6 +162,13 @@
           <span v-if="hasNewLogs" class="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full animate-ping"></span>
         </button>
 
+        <!-- Token 消耗对账开关 -->
+        <button @click="openTokenModal"
+                class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                title="LLM Token 消耗与对账总表">
+          <i data-lucide="receipt" class="w-4 h-4"></i>
+        </button>
+
         <!-- 设置面板开关 -->
         <button @click="showSettings = true"
                 class="p-2.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
@@ -356,6 +363,40 @@
                     <i data-lucide="sparkles" class="w-4 h-4"></i>
                     <span>调用 LLM 开始智能分段</span>
                   </button>
+                </div>
+
+                <!-- 本篇文档 Token 消耗卡片 -->
+                <div v-if="currentDocTokenUsage" class="glass-card rounded-2xl p-5 border border-indigo-500/30 bg-indigo-950/20 space-y-3">
+                  <div class="flex items-center justify-between pb-2 border-b border-indigo-900/50">
+                    <div class="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                      <i data-lucide="receipt" class="w-4 h-4 text-indigo-400"></i>
+                      <span>分段消耗对账</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 font-mono">{{ currentDocTokenUsage.timestamp }}</span>
+                  </div>
+
+                  <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+                      <div class="text-[10px] text-slate-400">输入 Token</div>
+                      <div class="text-xs font-mono font-bold text-indigo-300 mt-0.5">{{ currentDocTokenUsage.prompt_tokens?.toLocaleString() }}</div>
+                    </div>
+                    <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+                      <div class="text-[10px] text-slate-400">输出 Token</div>
+                      <div class="text-xs font-mono font-bold text-purple-300 mt-0.5">{{ currentDocTokenUsage.completion_tokens?.toLocaleString() }}</div>
+                    </div>
+                    <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+                      <div class="text-[10px] text-slate-400">总计消耗</div>
+                      <div class="text-xs font-mono font-bold text-pink-300 mt-0.5">{{ currentDocTokenUsage.total_tokens?.toLocaleString() }}</div>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                    <span class="truncate max-w-[130px]" :title="'模型: ' + currentDocTokenUsage.model">模型: {{ currentDocTokenUsage.model }}</span>
+                    <button @click="openTokenModal" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium transition text-xs">
+                      <span>对账总表</span>
+                      <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
                 </div>
 
                 <!-- 分段状态提醒 -->
@@ -1253,6 +1294,107 @@
       </div>
     </div>
 
+    <!-- 弹窗 3：LLM Token 消耗与对账总表 Modal -->
+    <div v-if="showTokenModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="glass-card rounded-2xl max-w-4xl w-full p-6 space-y-5 border border-slate-700 shadow-2xl max-h-[90vh] flex flex-col">
+        <!-- 弹窗头部 -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+              <i data-lucide="receipt" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-base text-slate-100 leading-tight">LLM Token 消耗与对账记录</h3>
+              <p class="text-xs text-slate-400">精确记录每次分段的 Token 消耗，支持导出 CSV 表格核对账单</p>
+            </div>
+          </div>
+          <button @click="showTokenModal = false" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- 累计统计卡片 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+          <div class="p-3.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+            <div class="text-xs text-slate-400 font-medium">累计调用次数</div>
+            <div class="text-lg font-mono font-bold text-slate-100 mt-1">{{ tokenSummary.total_calls }} 次</div>
+          </div>
+          <div class="p-3.5 bg-slate-950/60 rounded-xl border border-indigo-900/30">
+            <div class="text-xs text-indigo-400 font-medium">累计输入 (Prompt)</div>
+            <div class="text-lg font-mono font-bold text-indigo-300 mt-1">{{ tokenSummary.total_prompt_tokens?.toLocaleString() }}</div>
+          </div>
+          <div class="p-3.5 bg-slate-950/60 rounded-xl border border-purple-900/30">
+            <div class="text-xs text-purple-400 font-medium">累计输出 (Completion)</div>
+            <div class="text-lg font-mono font-bold text-purple-300 mt-1">{{ tokenSummary.total_completion_tokens?.toLocaleString() }}</div>
+          </div>
+          <div class="p-3.5 bg-slate-950/60 rounded-xl border border-pink-900/30">
+            <div class="text-xs text-pink-400 font-medium">累计总 Token 消耗</div>
+            <div class="text-lg font-mono font-bold text-pink-300 mt-1">{{ tokenSummary.total_tokens?.toLocaleString() }}</div>
+          </div>
+        </div>
+
+        <!-- 对账明细表格 -->
+        <div class="flex-1 overflow-hidden flex flex-col bg-slate-950/60 rounded-xl border border-slate-800 min-h-[220px]">
+          <div class="p-3 border-b border-slate-800/80 flex items-center justify-between shrink-0 bg-slate-900/40">
+            <div class="text-xs font-semibold text-slate-300 flex items-center gap-2">
+              <i data-lucide="table" class="w-3.5 h-3.5 text-indigo-400"></i>
+              <span>调用明细清单（最近优先）</span>
+            </div>
+            <span class="text-xs text-slate-500">存储位置: logs/token_usage.csv</span>
+          </div>
+
+          <div class="flex-1 overflow-y-auto">
+            <table v-if="tokenSummary.records && tokenSummary.records.length > 0" class="w-full text-left text-xs border-collapse">
+              <thead class="sticky top-0 bg-slate-900 text-slate-400 border-b border-slate-800 z-10">
+                <tr>
+                  <th class="p-2.5 font-medium">时间</th>
+                  <th class="p-2.5 font-medium">文档名称</th>
+                  <th class="p-2.5 font-medium">模型</th>
+                  <th class="p-2.5 font-medium text-right">输入 Token</th>
+                  <th class="p-2.5 font-medium text-right">输出 Token</th>
+                  <th class="p-2.5 font-medium text-right">总 Token</th>
+                  <th class="p-2.5 font-medium text-right">字数/分段</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                <tr v-for="(rec, idx) in tokenSummary.records" :key="idx" class="hover:bg-slate-900/50 transition-colors">
+                  <td class="p-2.5 text-slate-400 font-sans whitespace-nowrap">{{ rec.timestamp }}</td>
+                  <td class="p-2.5 text-slate-200 font-sans font-medium whitespace-nowrap">{{ rec.document }}</td>
+                  <td class="p-2.5 text-indigo-300 whitespace-nowrap">{{ rec.model }}</td>
+                  <td class="p-2.5 text-right text-indigo-400">{{ rec.prompt_tokens?.toLocaleString() }}</td>
+                  <td class="p-2.5 text-right text-purple-400">{{ rec.completion_tokens?.toLocaleString() }}</td>
+                  <td class="p-2.5 text-right font-bold text-pink-300">{{ rec.total_tokens?.toLocaleString() }}</td>
+                  <td class="p-2.5 text-right text-slate-400 font-sans">{{ rec.char_count }}字 / {{ rec.segment_count }}段</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-else class="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center">
+              <i data-lucide="inbox" class="w-8 h-8 text-slate-600 mb-2"></i>
+              <span>暂无 Token 消耗记录，执行“智能分段”后将自动在此记录</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 弹窗底部操作栏 -->
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800 shrink-0">
+          <button @click="loadTokenUsageData" :disabled="isLoadingTokenStats" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition flex items-center gap-1.5 disabled:opacity-50">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoadingTokenStats }"></i>
+            <span>刷新数据</span>
+          </button>
+          
+          <div class="flex items-center gap-2">
+            <a href="/api/token_usage/export" target="_blank" download="tts_studio_token_usage.csv"
+               class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              <span>导出对账表 (Excel CSV)</span>
+            </a>
+            <button @click="showTokenModal = false" class="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-slate-200 bg-slate-800">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Vue 3 核心交互逻辑 -->
@@ -1305,8 +1447,39 @@
         // 弹窗状态
         const showCreateModal = ref(false);
         const showSettings = ref(false);
+        const showTokenModal = ref(false);
+        const isLoadingTokenStats = ref(false);
+        const currentDocTokenUsage = ref(null);
+        const tokenSummary = ref({
+          total_prompt_tokens: 0,
+          total_completion_tokens: 0,
+          total_tokens: 0,
+          total_calls: 0,
+          records: [],
+          csv_exists: false,
+        });
         const newDocName = ref('');
         const newDocContent = ref('');
+
+        const loadTokenUsageData = async () => {
+          isLoadingTokenStats.value = true;
+          try {
+            const res = await fetch('/api/token_usage');
+            const data = await res.json();
+            tokenSummary.value = data;
+          } catch (e) {
+            console.error('加载 Token 对账记录失败', e);
+          } finally {
+            isLoadingTokenStats.value = false;
+            nextTick(refreshIcons);
+          }
+        };
+
+        const openTokenModal = async () => {
+          showTokenModal.value = true;
+          await loadTokenUsageData();
+          nextTick(refreshIcons);
+        };
 
         // Master Audio 播放器
         const masterAudioTimestamp = ref(Date.now());
@@ -1449,8 +1622,10 @@
             const res = await fetch(`/api/documents/${name}/segments`);
             const data = await res.json();
             segments.value = data.segments || [];
+            currentDocTokenUsage.value = data.token_usage || null;
           } catch (e) {
             segments.value = [];
+            currentDocTokenUsage.value = null;
           }
           nextTick(refreshIcons);
         };
@@ -2201,7 +2376,7 @@
           nextTick(refreshIcons);
         });
 
-        watch([showConsole, showSettings, showCreateModal], () => {
+        watch([showConsole, showSettings, showCreateModal, showTokenModal], () => {
           nextTick(refreshIcons);
         });
 
@@ -2225,6 +2400,12 @@
           logBox,
           showCreateModal,
           showSettings,
+          showTokenModal,
+          isLoadingTokenStats,
+          currentDocTokenUsage,
+          tokenSummary,
+          loadTokenUsageData,
+          openTokenModal,
           newDocName,
           newDocContent,
           isPlayingMaster,

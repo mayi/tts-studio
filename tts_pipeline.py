@@ -26,6 +26,7 @@
 
 import os
 import sys
+import csv
 import json
 import re
 import time
@@ -59,8 +60,11 @@ INPUT_DIR = PROJECT_DIR / "input"
 OUTPUT_DIR = PROJECT_DIR / "output"
 TEMP_DIR = PROJECT_DIR / "temp"
 BGM_DIR = PROJECT_DIR / "bgm"
+LOGS_DIR = PROJECT_DIR / "logs"
+TOKEN_USAGE_CSV = LOGS_DIR / "token_usage.csv"
 WORKFLOW_PATH = PROJECT_DIR / "workflows" / "xiaoying-read.json"
 
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 BGM_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 加载环境变量文件 (.env) ───────────────────────────────────
@@ -143,6 +147,161 @@ def check_ffmpeg_health() -> tuple[bool, str]:
 
 
 # ══════════════════════════════════════════════════════════════
+#  LLM Token 消耗记录与对账
+# ══════════════════════════════════════════════════════════════
+
+def record_token_usage(
+    doc_name: str,
+    model: str,
+    usage: dict,
+    char_count: int,
+    segment_count: int,
+    request_id: Optional[str] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None,
+) -> dict:
+    """记录 LLM Token 消耗并持久化至 logs/token_usage.csv 与 temp/<doc_name>/token_usage.json。"""
+    prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+    completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+    total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+
+    # 兼容某些服务商返回的命中上下文缓存 Token
+    cached_tokens = 0
+    prompt_details = usage.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict):
+        cached_tokens = int(prompt_details.get("cached_tokens", 0) or 0)
+
+    record = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "document": doc_name or "未命名",
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
+        "char_count": char_count,
+        "segment_count": segment_count,
+        "request_id": str(request_id or ""),
+    }
+
+    # 1. 写入全局对账表 logs/token_usage.csv (使用 utf-8-sig 编码，Windows Excel/WPS 打开无乱码)
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        csv_file = TOKEN_USAGE_CSV
+        file_exists = csv_file.exists() and csv_file.stat().st_size > 0
+
+        with open(csv_file, mode="a", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    "时间",
+                    "文档名称",
+                    "模型",
+                    "输入Token",
+                    "输出Token",
+                    "总Token",
+                    "命中缓存Token",
+                    "原文汉字数",
+                    "分段数",
+                    "请求ID",
+                ])
+            writer.writerow([
+                record["timestamp"],
+                record["document"],
+                record["model"],
+                record["prompt_tokens"],
+                record["completion_tokens"],
+                record["total_tokens"],
+                record["cached_tokens"],
+                record["char_count"],
+                record["segment_count"],
+                record["request_id"],
+            ])
+    except Exception as e:
+        if log_callback:
+            log_callback(f"    [警告] 写入对账 CSV 失败: {e}", "warning")
+
+    # 2. 写入该文档对应的临时目录 temp/<doc_name>/token_usage.json
+    if doc_name:
+        doc_dir = TEMP_DIR / doc_name
+        try:
+            doc_dir.mkdir(parents=True, exist_ok=True)
+            (doc_dir / "token_usage.json").write_text(
+                json.dumps(record, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    # 3. 控制台与 Web 前端日志流输出
+    cache_str = f" (命中缓存: {cached_tokens})" if cached_tokens > 0 else ""
+    log_msg = (
+        f"  ✓ Token 消耗统计: 模型={model} | 输入={prompt_tokens}{cache_str} + "
+        f"输出={completion_tokens} = 总计={total_tokens} tokens (已记录至 logs/token_usage.csv)"
+    )
+    if log_callback:
+        log_callback(log_msg, "info")
+    else:
+        print(log_msg)
+
+    return record
+
+
+def get_token_usage_summary() -> dict:
+    """读取并汇总全局 Token 消耗记录"""
+    csv_file = TOKEN_USAGE_CSV
+    if not csv_file.exists() or csv_file.stat().st_size == 0:
+        return {
+            "total_prompt_tokens": 0,
+            "total_completion_tokens": 0,
+            "total_tokens": 0,
+            "total_calls": 0,
+            "records": [],
+            "csv_exists": False,
+        }
+
+    records = []
+    total_prompt = 0
+    total_completion = 0
+    total_all = 0
+
+    try:
+        with open(csv_file, mode="r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                p = int(row.get("输入Token", 0) or 0)
+                c = int(row.get("输出Token", 0) or 0)
+                t = int(row.get("总Token", 0) or (p + c))
+                total_prompt += p
+                total_completion += c
+                total_all += t
+                records.append({
+                    "timestamp": row.get("时间", ""),
+                    "document": row.get("文档名称", ""),
+                    "model": row.get("模型", ""),
+                    "prompt_tokens": p,
+                    "completion_tokens": c,
+                    "total_tokens": t,
+                    "cached_tokens": int(row.get("命中缓存Token", 0) or 0),
+                    "char_count": int(row.get("原文汉字数", 0) or 0),
+                    "segment_count": int(row.get("分段数", 0) or 0),
+                    "request_id": row.get("请求ID", ""),
+                })
+    except Exception:
+        pass
+
+    records.reverse()
+
+    return {
+        "total_prompt_tokens": total_prompt,
+        "total_completion_tokens": total_completion,
+        "total_tokens": total_all,
+        "total_calls": len(records),
+        "records": records,
+        "csv_exists": True,
+    }
+
+
+# ══════════════════════════════════════════════════════════════
 #  步骤 1：LLM 分段
 # ══════════════════════════════════════════════════════════════
 
@@ -154,6 +313,7 @@ def split_text_with_llm(
     model: Optional[str] = None,
     max_chars: Optional[int] = None,
     log_callback: Optional[Callable[[str, str], None]] = None,
+    doc_name: Optional[str] = None,
 ) -> list[str]:
     """调用 LLM API 将文本按播客朗读习惯分段，每段 ≤ 200 字。"""
     def log(msg, level="info"):
@@ -224,7 +384,8 @@ def split_text_with_llm(
     if resp is None:
         raise RuntimeError("LLM 请求无响应")
 
-    content = resp.json()["choices"][0]["message"]["content"].strip()
+    resp_json = resp.json()
+    content = resp_json["choices"][0]["message"]["content"].strip()
 
     if content.startswith("```"):
         lines = content.split("\n")
@@ -253,6 +414,24 @@ def split_text_with_llm(
         char_count = len(seg)
         if char_count > max_chars:
             log(f"  ⚠ 第 {i} 段长度 {char_count} 字，超过 {max_chars} 字限制", "warning")
+
+    # 记录 Token 消耗（用于后面对账）
+    try:
+        usage = resp_json.get("usage")
+        if usage:
+            record_token_usage(
+                doc_name=doc_name or "未命名文档",
+                model=model,
+                usage=usage,
+                char_count=len(text),
+                segment_count=len(segments),
+                request_id=resp_json.get("id"),
+                log_callback=log,
+            )
+        else:
+            log("  ℹ 提示：该 LLM API 响应未包含 usage 统计字段", "info")
+    except Exception as e:
+        log(f"  [警告] 记录 Token 消耗异常: {e}", "warning")
 
     return segments
 
@@ -760,7 +939,7 @@ def process_file(
 
     # 步骤 1: 分段
     log("\n[步骤 1/3] 使用 LLM 分段...")
-    segments = split_text_with_llm(text, log_callback=log_callback)
+    segments = split_text_with_llm(text, log_callback=log_callback, doc_name=name)
     seg_files = save_segments(segments, name)
     log(f"  共分为 {len(seg_files)} 段")
 
@@ -810,7 +989,7 @@ def step_split_only(input_path: Path, custom_prompt=None, max_chars=None, log_ca
     text = input_path.read_text(encoding="utf-8")
 
     log(f"\n处理文件: {input_path.name}")
-    segments = split_text_with_llm(text, custom_prompt=custom_prompt, max_chars=max_chars, log_callback=log_callback)
+    segments = split_text_with_llm(text, custom_prompt=custom_prompt, max_chars=max_chars, log_callback=log_callback, doc_name=name)
     seg_files = save_segments(segments, name)
 
     log(f"\n共分为 {len(seg_files)} 段，保存到 temp/{name}/：")

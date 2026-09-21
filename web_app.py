@@ -308,6 +308,28 @@ def save_config(config: ConfigModel):
     return {"status": "ok", "message": "配置保存成功"}
 
 
+# ── Token 消耗与对账接口 ──────────────────────────────────────
+
+@app.get("/api/token_usage")
+def get_token_usage():
+    """获取所有 LLM Token 消耗对账记录及统计数据"""
+    return tts_pipeline.get_token_usage_summary()
+
+
+@app.get("/api/token_usage/export")
+def export_token_usage():
+    """导出并下载 Token 消耗对账 CSV 文件"""
+    csv_file = tts_pipeline.TOKEN_USAGE_CSV
+    if not csv_file.exists():
+        raise HTTPException(status_code=404, detail="暂无 Token 对账记录")
+    return FileResponse(
+        path=csv_file,
+        media_type="text/csv",
+        filename="tts_studio_token_usage.csv",
+        headers={"Content-Disposition": "attachment; filename=tts_studio_token_usage.csv"},
+    )
+
+
 # ── 文章管理接口 ──────────────────────────────────────────────
 
 @app.get("/api/documents")
@@ -431,9 +453,18 @@ def get_document_segments(name: str):
             "audio_mtime": audio_mtime,
         })
 
+    # 读取该文档关联的 Token 消耗记录
+    token_usage = None
+    usage_file = seg_dir / "token_usage.json"
+    if usage_file.exists():
+        try:
+            token_usage = json.loads(usage_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
     # 按 idx 排序
     segments.sort(key=lambda s: s["idx"])
-    return {"name": name, "segments": segments, "total": len(segments)}
+    return {"name": name, "segments": segments, "total": len(segments), "token_usage": token_usage}
 
 
 @app.post("/api/documents/{name}/segment/split")
